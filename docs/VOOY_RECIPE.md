@@ -25,7 +25,7 @@ https://<공개 주소>/mcp/<OBA_MCP_TOKEN>
 | `list_parent_requests` | "엄마 부탁 뭐 있어?" | 조회 |
 | `get_new_parent_requests` | 크론잡: 새 통화 정리본을 한 번씩 가져옴 | 조회(전달 표시) |
 | `approve_order` | "응 결제해", "전기요 사줘" → 구매 승인(최대 금액·배송지) | **사용자 확인 필수 (🛒 자동결제 범위는 예외)** |
-| `report_purchase` | vooy가 주문·결제한 뒤 결과 보고 → 엄마 문자 | 기록 |
+| `report_purchase` | vooy가 주문·결제한 뒤 결과 보고 + `message_to_mom`(엄마에게 보낼 문자, 자식 말투) | 기록 |
 | `reject_order` | "그건 빼줘" | 변경 |
 | `cancel_order` | "그거 취소해줘" | **환불 — 사용자 확인 필수** |
 | `update_delegation` | "자동결제 한도 5만원으로" | 변경 |
@@ -52,6 +52,7 @@ https://<공개 주소>/mcp/<OBA_MCP_TOKEN>
 - 🟡 확인 필요 주문은 사용자가 "응", "결제해"처럼 분명히 동의한 뒤에만 approve_order를 부른다.
 - approve_order가 돌려준 상품·수량·최대 금액(max_amount)·배송지(ship_to) 범위 안에서 vooy가 직접 주문·결제한다.
 - 주문·결제가 끝나면 반드시 report_purchase로 결과(success, merchant, paid_amount, order_number)를 알린다. 실패하면 success=false와 note.
+- 성공했으면 message_to_mom에 자식 말투로 엄마께 보낼 문자를 1~2문장으로 적는다(예: "엄마, 휴지 시켜놨어~ 내일 와!"). 상품·배송 요점은 넣고 주문번호나 결제수단 같은 내부 정보는 빼고, 비우면 서버가 기본 문구로 대신 보낸다.
 
 [취소]
 - cancel_order는 사용자가 "취소해"처럼 분명히 동의한 뒤에만 부른다.
