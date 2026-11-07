@@ -1,0 +1,35 @@
+{
+  "products": [
+    {"id": "p-tissue-30", "name": "깨끗한나라 3겹 롤화장지 30m 30롤", "category": "생활용품", "price": 18900, "keywords": ["휴지", "화장지", "두루마리", "롤휴지"], "rating": 4.8, "delivery": "내일 새벽 도착"},
+    {"id": "p-tissue-24", "name": "모나리자 2겹 화장지 27m 24롤", "category": "생활용품", "price": 12900, "keywords": ["휴지", "화장지", "두루마리"], "rating": 4.5, "delivery": "내일 도착"},
+    {"id": "p-wettissue", "name": "베베숲 물티슈 캡형 70매 10팩", "category": "생활용품", "price": 15900, "keywords": ["물티슈"], "rating": 4.7, "delivery": "내일 새벽 도착"},
+    {"id": "p-egg-30", "name": "무항생제 특란 30구", "category": "식품", "price": 9480, "keywords": ["계란", "달걀", "특란"], "rating": 4.7, "delivery": "내일 새벽 도착"},
+    {"id": "p-rice-10", "name": "이천 햅쌀 10kg", "category": "식품", "price": 32900, "keywords": ["쌀", "햅쌀", "백미"], "rating": 4.8, "delivery": "모레 도착"},
+    {"id": "p-rice-20", "name": "철원 오대쌀 20kg", "category": "식품", "price": 61900, "keywords": ["쌀", "백미"], "rating": 4.9, "delivery": "모레 도착"},
+    {"id": "p-gim", "name": "광천 재래김 전장 20봉", "category": "식품", "price": 11900, "keywords": ["김", "재래김", "조미김"], "rating": 4.6, "delivery": "내일 도착"},
+    {"id": "p-water", "name": "제주삼다수 2L 12병", "category": "식품", "price": 11520, "keywords": ["물", "생수", "삼다수"], "rating": 4.9, "delivery": "내일 새벽 도착"},
+    {"id": "p-milk", "name": "서울우유 1L 2팩", "category": "식품", "price": 5980, "keywords": ["우유"], "rating": 4.8, "delivery": "내일 새벽 도착"},
+    {"id": "p-kimchi", "name": "종가 포기김치 5kg", "category": "식품", "price": 34900, "keywords": ["김치", "포기김치"], "rating": 4.7, "delivery": "내일 도착"},
+    {"id": "p-ramen", "name": "농심 신라면 5개입 x 4", "category": "식품", "price": 16800, "keywords": ["라면", "신라면"], "rating": 4.8, "delivery": "내일 도착"},
+    {"id": "p-coffee", "name": "맥심 모카골드 커피믹스 180T", "category": "식품", "price": 27900, "keywords": ["커피", "커피믹스", "믹스커피", "맥심"], "rating": 4.9, "delivery": "내일 도착"},
+    {"id": "p-redginseng", "name": "정관장 홍삼정 에브리타임 30포", "category": "건강식품", "price": 89000, "keywords": ["홍삼", "정관장"], "rating": 4.9, "delivery": "내일 도착"},
+    {"id": "p-omega3", "name": "종근당 rTG 오메가3 60캡슐", "category": "건강식품", "price": 24900, "keywords": ["오메가3", "오메가", "영양제"], "rating": 4.6, "delivery": "내일 도착"},
+    {"id": "p-glucosamine", "name": "관절엔 글루코사민 MSM 180정", "category": "건강식품", "price": 29900, "keywords": ["관절", "글루코사민", "무릎"], "rating": 4.5, "delivery": "내일 도착"},
+    {"id": "p-pain-patch", "name": "제일 쿨파프 파스 10매", "category": "의약외품", "price": 6900, "keywords": ["파스", "쿨파스"], "rating": 4.6, "delivery": "내일 도착"},
+    {"id": "p-detergent", "name": "퍼실 딥클린 액체세제 2.7L", "category": "생활용품", "price": 16900, "keywords": ["세제", "빨래세제", "세탁세제"], "rating": 4.7, "delivery": "내일 도착"},
+    {"id": "p-dish", "name": "트리오 주방세제 1L 3개", "category": "생활용품", "price": 8900, "keywords": ["주방세제", "퐁퐁", "설거지"], "rating": 4.5, "delivery": "내일 도착"},
+    {"id": "p-shampoo", "name": "려 자양윤모 샴푸 820ml", "category": "생활용품", "price": 13900, "keywords": ["샴푸"], "rating": 4.7, "delivery": "내일 도착"},
+    {"id": "p-blanket", "name": "한일 전기요 싱글 (탄소매트)", "category": "가전", "price": 59000, "keywords": ["전기요", "전기장판", "장판", "매트"], "rating": 4.6, "delivery": "모레 도착"},
+    {"id": "p-humidifier", "name": "미로 가습기 3L", "category": "가전", "price": 79000, "keywords": ["가습기"], "rating": 4.4, "delivery": "모레 도착"},
+    {"id": "p-bulb", "name": "필립스 LED 전구 12W 4개", "category": "생활용품", "price": 9900, "keywords": ["전구", "형광등", "LED"], "rating": 4.6, "delivery": "내일 도착"},
+    {"id": "p-mask", "name": "KF94 마스크 대형 50매", "category": "생활용품", "price": 14900, "keywords": ["마스크"], "rating": 4.7, "delivery": "내일 도착"},
+    {"id": "p-giftcard", "name": "문화상품권 5만원권 (모바일)", "category": "상품권", "price": 50000, "keywords": ["상품권", "문화상품권", "기프트카드", "구글기프트", "기프티콘"], "rating": 4.0, "delivery": "즉시 발송"}
+  ],
+  "purchase_history": [
+    {"caller": "엄마", "product_id": "p-tissue-30", "date": "2026-09-20"},
+    {"caller": "엄마", "product_id": "p-egg-30", "date": "2026-10-28"},
+    {"caller": "엄마", "product_id": "p-gim", "date": "2026-10-05"},
+    {"caller": "엄마", "product_id": "p-coffee", "date": "2026-08-14"},
+    {"caller": "엄마", "product_id": "p-rice-10", "date": "2026-10-10"}
+  ]
+}

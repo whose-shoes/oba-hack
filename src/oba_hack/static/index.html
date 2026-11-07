@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>오바란 — 엄마 전화 한 통이면 끝</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1d1d1f;--sub:#6b6b70;--line:#e6e4df;--accent:#e8442e;--ok:#1f8a4c;--warn:#b26a00;--bad:#c62828;--chip:#f0eee9;--mom:#fde7e3}
+@media (prefers-color-scheme:dark){:root{--bg:#141416;--card:#1e1e21;--ink:#f2f2f3;--sub:#a0a0a8;--line:#2e2e33;--chip:#2a2a2f;--mom:#3a2420}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif}
+header{padding:20px 16px 8px;max-width:1200px;margin:auto;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;justify-content:space-between}
+h1{margin:0;font-size:22px}h1 span{color:var(--accent)}h2{font-size:15px;margin:0 0 10px;color:var(--sub);font-weight:600}
+.badges{display:flex;gap:6px;flex-wrap:wrap}.badge{background:var(--chip);border-radius:99px;padding:3px 10px;font-size:12px;color:var(--sub)}
+main{max-width:1200px;margin:auto;padding:8px 16px 40px;display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+@media (max-width:860px){main{grid-template-columns:1fr}}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:16px}
+.card{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.card.ask{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.between{justify-content:space-between}
+.quote{background:var(--mom);border-radius:10px;padding:8px 10px;margin:8px 0;font-size:14px}
+.quote b{font-size:12px;color:var(--sub);display:block}
+.name{font-weight:650}.price{font-weight:700;font-variant-numeric:tabular-nums}
+.sub{color:var(--sub);font-size:13px}.small{font-size:12px}
+.st{font-size:12px;font-weight:650;padding:2px 8px;border-radius:99px;background:var(--chip)}
+.st.paid{color:var(--ok)}.st.awaiting_approval,.st.not_found,.st.needs_transcript{color:var(--warn)}.st.blocked,.st.payment_failed{color:var(--bad)}.st.cancelled,.st.rejected{color:var(--sub)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;padding:6px 12px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:650}button:disabled{opacity:.5}
+textarea,input{font:inherit;width:100%;border:1px solid var(--line);border-radius:9px;padding:8px;background:var(--bg);color:var(--ink)}
+textarea{min-height:110px}
+details summary{cursor:pointer;color:var(--sub);font-size:13px}
+ul.tl{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--sub)}
+.bubble{background:var(--chip);border-radius:14px 14px 14px 4px;padding:8px 11px;margin:6px 0;font-size:14px}
+.bubble.mom{background:#34c759;color:#fff;border-radius:14px 14px 4px 14px;margin-left:24px}
+.feed{max-height:340px;overflow:auto}
+.policy label{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:6px 0;font-size:14px}
+.policy input[type=number]{width:120px;text-align:right}.policy input[type=checkbox]{width:auto}
+.empty{color:var(--sub);font-size:13px;padding:6px 0}
+pre{white-space:pre-wrap;font:13px/1.5 inherit;margin:6px 0;background:var(--bg);padding:8px;border-radius:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>오바<span>란</span> <small class="sub" style="font-size:14px;font-weight:400">엄마 전화 한 통이면, 장보기는 끝</small></h1>
+  <div class="badges"><span class="badge" id="llm"></span><span class="badge" id="spent"></span><span class="badge">결제는 모두 테스트 결제</span></div>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>확인이 필요해요</h2>
+      <div id="asks"></div>
+    </section>
+    <section>
+      <h2>주문 내역</h2>
+      <div id="orders"></div>
+    </section>
+    <section>
+      <h2>받은 통화</h2>
+      <div id="calls"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>엄마에게 보낸 문자 <span class="small">(모의 발송)</span></h2>
+      <div id="sms" class="feed"></div>
+    </section>
+    <section>
+      <h2>나에게 온 알림</h2>
+      <div id="push" class="feed"></div>
+    </section>
+    <section>
+      <h2>데모: 통화 넣기</h2>
+      <div class="row" id="samples" style="margin-bottom:8px"></div>
+      <input id="caller" value="엄마" placeholder="발신자" style="margin-bottom:6px">
+      <textarea id="transcript" placeholder="엄마: 휴지가 다 떨어졌어. 하나 시켜줘."></textarea>
+      <div class="row between" style="margin-top:8px">
+        <button id="reset">초기화</button>
+        <button class="primary" id="send">통화 보내기</button>
+      </div>
+    </section>
+    <section class="policy">
+      <h2>맡기는 범위 (위임 정책)</h2>
+      <label>믿을 수 있는 발신자 <input id="p_trusted" style="width:160px"></label>
+      <label>자동결제 한도 (원) <input type="number" id="p_auto" step="1000"></label>
+      <label>처음 사는 상품도 자동결제 <input type="checkbox" id="p_new"></label>
+      <label>1회 최대 (원) <input type="number" id="p_max" step="1000"></label>
+      <label>월 예산 (원) <input type="number" id="p_month" step="10000"></label>
+      <label>차단 품목 <input id="p_block" style="width:160px"></label>
+      <label>데모: 카드 결제 실패시키기 <input type="checkbox" id="p_fail"></label>
+      <div class="sub small" id="history"></div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const won = n => (n ?? 0).toLocaleString("ko-KR") + "원";
+const ST = {paid:"결제 완료",awaiting_approval:"승인 대기",blocked:"차단",payment_failed:"결제 실패",cancelled:"취소·환불",rejected:"주문 안 함",not_found:"상품 못 찾음",received:"수신",extracted:"분석 중",processed:"처리 완료",needs_transcript:"전사 필요"};
+const time = s => s ? s.slice(11,16) : "";
+let policyLoaded = false, last = "";
+
+async function api(path, opts={}) {
+  const r = await fetch(path, {headers:{"Content-Type":"application/json"}, ...opts});
+  if (!r.ok) { const t = await r.text(); console.log("api error", t); throw new Error(t); }
+  return r.json();
+}
+
+function orderCard(o) {
+  const p = o.product, req = o.request || {};
+  const ask = o.status === "awaiting_approval" || o.status === "payment_failed";
+  const alts = ask && o.alternatives?.length ? `<details><summary>다른 상품으로 바꾸기</summary>${o.alternatives.map(a =>
+      `<div class="row between small" style="margin-top:6px"><span>${esc(a.name)} · ${won(a.price*o.quantity)}</span><button data-swap="${o.id}" data-pid="${a.id}">이걸로</button></div>`).join("")}</details>` : "";
+  const btns = ask ? `<div class="row" style="margin-top:8px"><button class="primary" data-act="approve" data-id="${o.id}">${won(o.total)} 결제</button><button data-act="reject" data-id="${o.id}">안 살래요</button></div>`
+    : o.status === "paid" ? `<div class="row" style="margin-top:8px"><button data-act="cancel" data-id="${o.id}">취소·환불</button></div>`
+    : o.status === "not_found" || o.status === "blocked" ? `<div class="row" style="margin-top:8px"><button data-act="reject" data-id="${o.id}">확인했어요</button></div>` : "";
+  return `<div class="card ${ask ? "ask" : ""}">
+    <div class="row between"><span class="st ${o.status}">${ST[o.status] || o.status}</span><span class="sub small">${esc(o.caller)} · ${time(o.created_at)}</span></div>
+    ${req.evidence ? `<div class="quote"><b>${esc(o.caller)}가 통화에서</b>“${esc(req.evidence)}”</div>` : ""}
+    ${p ? `<div class="row between"><span class="name">${esc(p.name)} ×${o.quantity}</span><span class="price">${won(o.total)}</span></div>
+    <div class="sub">${esc((p.reasons||[]).join(" · "))}</div>` : `<div class="name">‘${esc(req.item)}’</div>`}
+    <div class="sub small" style="margin-top:4px">판단: ${esc(o.decision_reason)}</div>
+    ${o.receipt ? `<div class="sub small">영수증 ${esc(o.receipt.tx_id)} · ${esc(o.receipt.method)}</div>` : ""}
+    ${alts}${btns}
+    <details><summary>진행 기록</summary><ul class="tl">${o.timeline.map(t => `<li>${time(t.at)} ${esc(t.text)}</li>`).join("")}</ul></details>
+  </div>`;
+}
+
+function render(s) {
+  $("#llm").textContent = "분석 엔진: " + s.llm;
+  $("#spent").textContent = `이번 달 ${won(s.spent_this_month)} / ${won(s.policy.monthly_budget)}`;
+  const asks = s.orders.filter(o => ["awaiting_approval","payment_failed"].includes(o.status));
+  $("#asks").innerHTML = asks.map(orderCard).join("") || `<div class="empty">지금은 확인할 게 없어요. 한도 안의 부탁은 알아서 처리했어요.</div>`;
+  $("#orders").innerHTML = s.orders.filter(o => !asks.includes(o)).map(orderCard).join("") || `<div class="empty">아직 주문이 없어요.</div>`;
+  $("#calls").innerHTML = s.calls.map(c => `<div class="card">
+    <div class="row between"><span class="name">${esc(c.caller)}의 전화</span><span class="st ${c.status}">${ST[c.status]||c.status}</span></div>
+    <div class="sub small">${esc(c.received_at?.replace("T"," "))} · ${esc(c.source)}${c.engine ? " · 분석 " + esc(c.engine) : ""}</div>
+    ${c.extraction ? `<div style="margin-top:4px">${esc(c.extraction.summary)}</div>` : ""}
+    ${c.extraction?.scam_signals?.length ? `<div class="small" style="color:var(--bad)">⚠️ 사칭 의심: ${esc(c.extraction.scam_signals.join(", "))}</div>` : ""}
+    ${c.status === "needs_transcript" ? `<textarea data-tr="${c.id}" placeholder="에이닷 통화 요약/텍스트를 붙여 넣어 주세요"></textarea><button class="primary" data-trbtn="${c.id}" style="margin-top:6px">분석하기</button>` : ""}
+    ${c.transcript ? `<details><summary>통화 내용</summary><pre>${esc(c.transcript)}</pre></details>` : ""}
+  </div>`).join("") || `<div class="empty">통화가 오면 여기에 보여요.</div>`;
+  const ev = [...s.events].reverse();
+  $("#sms").innerHTML = ev.filter(e => e.kind === "sms_to_mom").map(e => `<div class="bubble mom">${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
+  $("#push").innerHTML = ev.filter(e => e.kind !== "sms_to_mom").map(e => `<div class="bubble"><span class="sub small">${new Date(e.ts*1000).toTimeString().slice(0,5)}</span> ${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
+  for (const f of ["#sms","#push"]) $(f).scrollTop = 1e9;
+  if (!policyLoaded) {
+    const p = s.policy; policyLoaded = true;
+    $("#p_trusted").value = p.trusted_callers.join(", "); $("#p_auto").value = p.auto_approve_limit;
+    $("#p_new").checked = p.auto_approve_new_items; $("#p_max").value = p.max_per_order;
+    $("#p_month").value = p.monthly_budget; $("#p_block").value = p.blocked_categories.join(", ");
+    $("#p_fail").checked = p.simulate_card_failure;
+    $("#history").textContent = "엄마 구매 이력: " + s.history.map(h => `${h.name}(${h.date})`).join(", ");
+  }
+}
+
+async function refresh() {
+  try {
+    const s = await api("/api/state"); const key = JSON.stringify([s.orders, s.calls, s.events.length, s.spent_this_month]);
+    if (key !== last && !document.activeElement?.dataset?.tr) { last = key; render(s); }
+  } catch (e) {}
+}
+
+document.addEventListener("click", async e => {
+  const t = e.target;
+  try {
+    if (t.dataset.act) { t.disabled = true; await api(`/api/orders/${t.dataset.id}/${t.dataset.act}`, {method:"POST"}); }
+    else if (t.dataset.swap) { await api(`/api/orders/${t.dataset.swap}/swap`, {method:"POST", body:JSON.stringify({product_id:t.dataset.pid})}); }
+    else if (t.dataset.trbtn) { const v = document.querySelector(`[data-tr="${t.dataset.trbtn}"]`).value; await api(`/api/calls/${t.dataset.trbtn}/transcript`, {method:"POST", body:JSON.stringify({text:v})}); }
+    else if (t.dataset.sample) { const s = samples.find(x => x.id === t.dataset.sample); $("#transcript").value = s.transcript; $("#caller").value = s.caller; return; }
+    else return;
+  } catch (err) { console.log(err); }
+  last = ""; refresh();
+});
+$("#send").onclick = async () => {
+  if (!$("#transcript").value.trim()) return;
+  await api("/api/calls", {method:"POST", body:JSON.stringify({transcript:$("#transcript").value, caller:$("#caller").value})});
+  $("#transcript").value = ""; last = ""; setTimeout(refresh, 300);
+};
+$("#reset").onclick = async () => { await api("/api/reset", {method:"POST"}); last = ""; refresh(); };
+const list = v => v.split(",").map(x => x.trim()).filter(Boolean);
+document.querySelectorAll(".policy input").forEach(i => i.addEventListener("change", async () => {
+  await api("/api/policy", {method:"PUT", body:JSON.stringify({
+    trusted_callers:list($("#p_trusted").value), auto_approve_limit:+$("#p_auto").value, auto_approve_new_items:$("#p_new").checked,
+    max_per_order:+$("#p_max").value, monthly_budget:+$("#p_month").value, blocked_categories:list($("#p_block").value),
+    simulate_card_failure:$("#p_fail").checked})});
+  last = ""; refresh();
+}));
+let samples = [];
+api("/api/samples").then(s => { samples = s; $("#samples").innerHTML = s.map(x => `<button data-sample="${x.id}">${esc(x.title)}</button>`).join(""); });
+refresh(); setInterval(refresh, 1500);
+</script>
+</body>
+</html>
