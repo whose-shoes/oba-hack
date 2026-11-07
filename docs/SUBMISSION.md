@@ -31,14 +31,14 @@ SKT A.X K2 (OpenAI 호환 Chat Completions), SKT 에이닷 통화 녹음, vooy (
 
 ## 링크
 
-- GitHub URL: https://github.com/whose-shoes/oba-hack — **현재 비공개(PRIVATE)**. 제출 전 공개 전환 또는 심사자 접근 권한 필요
+- GitHub URL: https://github.com/whose-shoes/oba-hack (공개, 2026-11-07 16:19 전환)
 - 데모 URL: https://c12b-125-131-149-33.ngrok-free.app/ — 이 Mac에서 실행 중인 서버(ngrok). ngrok을 재시작하면 주소가 바뀌므로 제출 직전에 다시 확인. 0탭(SKT 연동) 경로는 대시보드의 '통화 시뮬레이터'로 모의 시연한다고 명시
 
 ## 제출 전 확인
 
 - [ ] SKT 현장 담당자에게 에이닷 통화 요약의 외부 연동 방법(공유 형식, 파트너 API) 문의
 - [x] A.X K2 키로 실제 추출 확인 (2026-11-07 14:57, 샘플 통화 3건 각 1초 안팎, 근거 문장·수량·사칭 정황 정상)
-- [ ] 저장소 공개 전환 또는 심사자 초대 (whose-shoes/oba-hack, 커밋 이력에 키·토큰 없음 확인 2026-11-07 16:13)
+- [x] 저장소 공개 전환 (whose-shoes/oba-hack, 커밋 이력에 키·토큰 없음 확인 후 2026-11-07 16:19 공개)
 - [ ] vooy 앱에서 MCP 연결·레시피·5분 폴링으로 정리본 수신과 "응 결제해" 결제까지 확인
 - [ ] 에이닷 공유 결과물(텍스트/녹음) 실제 확인
 - [ ] Q3·Q5가 시연 내용과 일치하는지
