@@ -134,3 +134,24 @@ def test_settings_validation_and_test_send(client, monkeypatch):
     c.put("/api/vooy", json={"push_url": MOCK, "push_token": "tok"})
     assert c.post("/api/vooy/test").json() == {"ok": True, "result": "HTTP 200"}
     assert "[테스트]" in events(c, "vooy_mock")[0]["text"]
+
+
+def test_five_minute_polling_contract(client):
+    """vooy가 5분마다 부르는 도구: 새 통화 데이터가 있을 때만 넘겨주고, 없으면 조용히."""
+    c, _ = client
+    empty = cron_tool()
+    assert empty["has_new"] is False and empty["notify_user"] is False and empty["message"] == ""
+    assert empty["poll_interval_sec"] == 300
+
+    setup_family(c)
+    call_ends(c)
+    got = cron_tool()
+    assert got["has_new"] is True and got["count"] == 1 and got["notify_user"] is True
+    d = got["new"][0]
+    assert d["call"]["source"].startswith("SKT 망 연동") and d["call"]["received_at"]
+    assert "전기요" in got["message"] and any(i["status"] == "awaiting_approval" for i in d["items"])
+
+    after = cron_tool()                                   # 다음 폴링엔 다시 나오지 않는다
+    assert after["has_new"] is False
+    poll = c.get("/api/vooy").json()["poll"]
+    assert poll["polls"] == 3 and poll["taken"] == 1 and poll["last_count"] == 0

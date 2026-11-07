@@ -290,8 +290,12 @@ async def mock_vooy_webhook(request: Request) -> dict:
 @app.get("/v1/vooy/digests")
 def poll_digests(mark: bool = True, _: dict = Depends(ingest.upload_auth)) -> dict:
     """새 정리본. mark=true(기본)면 가져가며 전달됨 표시, false면 보기만 하고 /ack로 확인."""
-    items = notify.take_pending("rest") if mark else notify.pending()
-    return {"digests": [notify.public(d) for d in items]}
+    if mark:
+        items = notify.take_pending("rest")
+    else:
+        items = notify.pending()
+        notify.record_poll(len(items), "rest-peek")
+    return {"has_new": bool(items), "digests": [notify.public(d) for d in items]}
 
 
 class AckIn(BaseModel):

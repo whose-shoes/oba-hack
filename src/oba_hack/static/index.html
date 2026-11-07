@@ -93,7 +93,8 @@ code{font-size:12px;background:var(--chip);padding:2px 6px;border-radius:6px;ove
       <div class="sub small" id="simmsg" style="margin-top:6px"></div>
     </section>
     <section>
-      <h2>vooy로 먼저 보내기 <span class="small">(웹훅 · 크론 함께 켜도 중복 없음)</span></h2>
+      <h2>vooy 전달 <span class="small">(확정: vooy가 MCP로 5분마다 폴링 · 웹훅은 선택)</span></h2>
+      <div id="pollstat" style="margin-bottom:4px"></div>
       <div class="sub small" id="vooystats"></div>
       <div class="form">
         <label class="wide">웹훅 주소 (vooy가 준 주소)<input id="v_url" placeholder="https://…"></label>
@@ -106,7 +107,7 @@ code{font-size:12px;background:var(--chip);padding:2px 6px;border-radius:6px;ove
         <div class="row"><button id="v_test">테스트 발송</button><button class="primary" id="v_save">저장</button></div>
       </div>
       <div class="sub small" id="v_msg" style="margin-top:6px"></div>
-      <details style="margin-top:6px"><summary>크론으로 가져가기</summary>
+      <details style="margin-top:6px" open><summary>5분 폴링 설정 (vooy)</summary>
         <div class="sub small" style="margin-top:6px">vooy 반복 작업: “5분마다 <code>get_new_parent_requests</code>를 실행하고 새 정리본이 있으면 나에게 보내줘. 없으면 조용히 있어.”<br>
         HTTP 크론이면 <code>GET /v1/vooy/digests</code> (헤더 <code>Authorization: Bearer 가족 업로드 토큰</code>), 보기만 하려면 <code>?mark=false</code> 후 <code>POST /v1/vooy/digests/ack</code>.</div>
       </details>
@@ -218,7 +219,13 @@ function render(s) {
   $("#sms").innerHTML = ev.filter(e => e.kind === "sms_to_mom").map(e => `<div class="bubble mom">${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
   $("#push").innerHTML = ev.filter(e => e.kind !== "sms_to_mom").map(e => `<div class="bubble ${e.kind.startsWith("vooy") ? "vooy" : ""}"><span class="sub small">${new Date(e.ts*1000).toTimeString().slice(0,5)}</span> ${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
   for (const f of ["#sms","#push"]) $(f).scrollTop = 1e9;
-  const v = s.vooy, st = v.stats;
+  const v = s.vooy, st = v.stats, pl = v.poll || {};
+  if (pl.last_polled_at) {
+    const ago = Math.max(0, Math.round((Date.now() - new Date(pl.last_polled_at).getTime()) / 60000));
+    $("#pollstat").innerHTML = `${ago <= 6 ? "🟢" : "🟠"} vooy 마지막 폴링 <b>${time(pl.last_polled_at)}</b> (${ago}분 전) · 총 ${pl.polls}회 · 가져간 정리본 ${pl.taken}건`;
+  } else {
+    $("#pollstat").innerHTML = `⚪ 아직 vooy 폴링 기록이 없어요. vooy에 MCP를 연결하고 5분 반복 작업을 켜 주세요.`;
+  }
   $("#vooystats").textContent = `웹훅 ${v.webhook_on ? "켜짐" : "꺼짐"} · 보낼 함 ${st.pending}건 · 웹훅으로 전달 ${st.webhook}건 · 크론이 가져감 ${st.cron}건` + (st.gave_up ? ` · 재시도 포기 ${st.gave_up}건` : "");
   if (!vooyLoaded) {
     vooyLoaded = true;

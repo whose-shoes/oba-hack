@@ -181,23 +181,33 @@ def list_parent_requests(include_done: bool = False) -> dict[str, Any]:
     }
 
 
+POLL_INTERVAL_SEC = 300
+
+
 @server.tool(
     name="get_new_parent_requests",
-    title="새 통화 정리본 가져오기",
+    title="새 통화 정리본 가져오기 (5분 폴링)",
     description=(
-        "엄마와의 통화가 끝난 뒤 새로 정리된 정리본을 한 번씩만 가져옵니다(가져가면 전달됨으로 표시). "
-        "반복 작업으로 몇 분마다 확인하거나 '엄마한테 새로 온 부탁 있어?'에 쓰세요. "
-        "새 정리본이 있으면 text를 사용자에게 그대로 전하고, 확인이 필요한 주문은 결제할지 물어보세요."
+        "vooy가 5분마다 폴링하는 도구입니다. 엄마와의 통화가 끝난 뒤 새로 정리된 통화 데이터(정리본)가 있으면 넘겨주고, "
+        "넘겨준 건 전달됨으로 표시해 다음 폴링에는 다시 나오지 않습니다. "
+        "has_new가 true면 message를 사용자에게 그대로 보내고 확인이 필요한 주문은 결제할지 물어보세요. "
+        "has_new가 false면 사용자에게 아무것도 보내지 마세요. '엄마한테 새로 온 부탁 있어?'에도 쓸 수 있습니다."
     ),
     annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False,
                                 open_world_hint=False),
 )
 def get_new_parent_requests() -> dict[str, Any]:
     new = notify.take_pending("cron")  # 웹훅으로 이미 간 정리본은 제외, 가져간 건 전달됨 표시
+    base = {"polled_at": datetime.now().isoformat(timespec="seconds"), "poll_interval_sec": POLL_INTERVAL_SEC}
     if not new:
-        return {"new": [], "message": "새로 정리된 엄마 부탁이 없어요."}
-    return {"new": [{"text": d["text"], "items": d["items"], "created_at": d["created_at"]} for d in new],
-            "message": "\n\n".join(d["text"] for d in new)}
+        return base | {"has_new": False, "count": 0, "notify_user": False, "message": "", "new": []}
+    return base | {
+        "has_new": True,
+        "count": len(new),
+        "notify_user": True,
+        "message": "\n\n".join(d["text"] for d in new),
+        "new": [notify.public(d) for d in new],
+    }
 
 
 def _result(fn, ref: str, statuses: tuple[str, ...], *args) -> dict[str, Any]:

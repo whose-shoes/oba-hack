@@ -85,6 +85,8 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
         "id": call["id"],
         "parent": label,
         "created_at": now(),
+        "call": {"received_at": call.get("received_at"), "source": call.get("source"),
+                 "summary": ex.get("summary", "")},
         "text": "\n".join(lines),
         "items": [_item(o) for o in orders],
         "other_tasks": tasks,
@@ -96,7 +98,7 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
 
 
 def public(d: dict) -> dict:
-    return {k: d[k] for k in ("id", "parent", "created_at", "text", "items", "other_tasks")}
+    return {k: d.get(k) for k in ("id", "parent", "created_at", "call", "text", "items", "other_tasks")}
 
 
 # ---------- 설정 (환경변수 기본값 + 대시보드에서 바꾼 값) ----------
@@ -139,9 +141,22 @@ def stats() -> dict:
     }
 
 
+def record_poll(count: int, via: str) -> dict:
+    """vooy가 폴링할 때마다 기록 (대시보드에서 5분마다 오는지 확인용)."""
+    st = store.get("settings", "poll") or {}
+    st.update(last_polled_at=now(), last_count=count, last_via=via,
+              polls=st.get("polls", 0) + 1, taken=st.get("taken", 0) + count)
+    return store.put("settings", "poll", st)
+
+
+def poll_status() -> dict:
+    return store.get("settings", "poll") or {}
+
+
 def public_settings() -> dict:
     s = settings()
     return {
+        "poll": poll_status(),
         "push_url": s["push_url"],
         "user_id": s["user_id"],
         "push_token_set": bool(s["push_token"]),
@@ -270,8 +285,9 @@ def take_pending(via: str) -> list[dict]:
     with _lock:
         items = pending()
         mark_delivered([d["id"] for d in items], via)
+    record_poll(len(items), via)
     if items:
-        store.log("vooy_polled", via, f"💬 vooy 크론이 정리본 {len(items)}건을 가져감")
+        store.log("vooy_polled", via, f"💬 vooy가 폴링으로 정리본 {len(items)}건을 가져감")
     return items
 
 
