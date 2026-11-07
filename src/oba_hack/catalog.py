@@ -38,10 +38,12 @@ def search(item: str, detail: str = "", caller: str = "") -> list[dict]:
     numbers = set(re.findall(r"\d+", detail or ""))
     out = []
     for p in products():
-        hits = [k for k in p["keywords"] if k in text or (item and item in k)]
-        if not hits and item and item not in p["name"]:
+        # 품목명과 맞는 키워드가 설명 문구(예: '무릎 관절에 좋은')보다 훨씬 중요하다
+        item_hits = [k for k in p["keywords"] if item and (k in item or item in k)]
+        detail_hits = [k for k in p["keywords"] if detail and k in detail and k not in item_hits]
+        if not item_hits and not detail_hits and not (item and item in p["name"]):
             continue
-        score = 10 * len(hits) + (5 if item and item in p["name"] else 0)
+        score = 25 * len(item_hits) + 4 * len(detail_hits) + (10 if item and item in p["name"] else 0)
         reasons = []
         if p["id"] in bought:
             score += 8
@@ -52,4 +54,7 @@ def search(item: str, detail: str = "", caller: str = "") -> list[dict]:
         score += p["rating"]
         reasons.append(f"평점 {p['rating']} · {p['delivery']}")
         out.append({**p, "score": round(score, 2), "reasons": reasons})
-    return sorted(out, key=lambda c: (-c["score"], c["price"]))
+    out.sort(key=lambda c: (-c["score"], c["price"]))
+    if len(out) > 1 and len(out[0]["reasons"]) == 1:  # 이력·규격 근거가 없으면 '알아서 골라 달라'는 부탁에 맞춘 이유
+        out[0]["reasons"].insert(0, "같은 품목 중 평점이 가장 높아요")
+    return out

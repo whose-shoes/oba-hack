@@ -24,7 +24,8 @@ https://<공개 주소>/mcp/<OBA_MCP_TOKEN>
 | `setup_parent` | "엄마 번호는 …, 내 번호는 …", "엄마 무릎이 안 좋으셔" (말로 등록·수정) | 등록 |
 | `list_parent_requests` | "엄마 부탁 뭐 있어?" | 조회 |
 | `get_new_parent_requests` | 크론잡: 새 통화 정리본을 한 번씩 가져옴 | 조회(전달 표시) |
-| `approve_order` | "응 결제해", "전기요 사줘" | **결제 — 사용자 확인 필수** |
+| `approve_order` | "응 결제해", "전기요 사줘" → 구매 승인(최대 금액·배송지) | **사용자 확인 필수 (🛒 자동결제 범위는 예외)** |
+| `report_purchase` | vooy가 주문·결제한 뒤 결과 보고 → 엄마 문자 | 기록 |
 | `reject_order` | "그건 빼줘" | 변경 |
 | `cancel_order` | "그거 취소해줘" | **환불 — 사용자 확인 필수** |
 | `update_delegation` | "자동결제 한도 5만원으로" | 변경 |
@@ -46,8 +47,14 @@ https://<공개 주소>/mcp/<OBA_MCP_TOKEN>
 - 정리본(get_new_parent_requests 결과나 서버가 보낸 메시지)은 text를 그대로 보여 준다.
 - 🟡 확인 필요 주문은 상품·수량·금액과 엄마가 한 말을 보여 주고 "결제할까요?"라고 묻는다.
 
-[결제·취소]
-- approve_order와 cancel_order는 사용자가 "응", "결제해", "취소해"처럼 분명히 동의한 뒤에만 부른다.
+[결제 — vooy가 직접 주문·결제]
+- 🛒(늘 사던 소액, 자동결제 범위) 주문은 확인 없이 approve_order로 구매 승인을 받는다.
+- 🟡 확인 필요 주문은 사용자가 "응", "결제해"처럼 분명히 동의한 뒤에만 approve_order를 부른다.
+- approve_order가 돌려준 상품·수량·최대 금액(max_amount)·배송지(ship_to) 범위 안에서 vooy가 직접 주문·결제한다.
+- 주문·결제가 끝나면 반드시 report_purchase로 결과(success, merchant, paid_amount, order_number)를 알린다. 실패하면 success=false와 note.
+
+[취소]
+- cancel_order는 사용자가 "취소해"처럼 분명히 동의한 뒤에만 부른다.
 - "다른 거 없어?"라고 하면 list_parent_requests의 alternatives를 보여 주고, 고르면 product_id로 approve_order를 부른다.
 - 🚫 결제 안 함 항목은 결제를 제안하지 않고, 엄마께 직접 전화해 확인해 보라고 권한다.
 - 결과를 전할 때 엄마께 보낸 문자 내용도 알려 준다. 결제는 테스트 결제라고 밝힌다.
