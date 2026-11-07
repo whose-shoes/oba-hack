@@ -316,6 +316,8 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
             item = ai.get("search_keyword") or (o["product"].get("keywords") or [None])[0] \
                 or o["request"].get("item") or o["product"]["name"]
             link, link_type, shop = catalog.buy_link(o["product"], item)
+            if link_type != "product":  # 기본: 링크 없이 vooy가 네이버 스마트스토어에서 직접 찾고 산다
+                link, shop = "", "네이버 스마트스토어"
             r["handoff"] = {
                 "buy_here": link, "link_type": link_type, "shop": shop,
                 "product_on_link": o["product"].get("link_name", ""), "price_on_link": o["product"].get("link_price", 0),
@@ -326,8 +328,7 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
                 "mom_said": o["request"].get("evidence", ""),
                 "after": "report_purchase(order_id, success, merchant, paid_amount, order_number, product_name, message_to_mom)",
             }
-            r["message"] = ((f"이 {shop} 상품 링크에서 1개 구매하세요(테스트 결제): {link} — " if link_type == "product"
-                             else f"네이버쇼핑 검색 링크: {link} — ")
+            r["message"] = ((f"이 {shop} 상품 링크에서 1개 구매하세요(테스트 결제): {link} — " if link_type == "product" else "")
                             + f"구매 승인: {item} ×{o['quantity']}, 최대 {won(o['mandate']['max_amount'])}"
                             + (f", 배송지 {o['ship_to']}" if o.get("ship_to") else "")
                             + (f". 고를 때 기준: {', '.join(ai['buy_criteria'])}" if ai.get("buy_criteria") else "")

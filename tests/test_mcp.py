@@ -231,7 +231,9 @@ def test_handoff_sends_naver_link(client):
     family.consent(fam["id"], fam["parents"][0]["id"])
     c.post("/api/simulate/call-ended", json={"transcript": DAILY})
     (first,) = mcp(("approve_order", {"order_id": "전기요"}))
-    assert first["handoff"]["link_type"] == "search" and first["handoff"]["buy_here"].startswith("https://search.shopping.naver.com/")
+    # 기본: 링크 없이 vooy가 네이버 스마트스토어에서 직접 찾아 산다
+    assert first["handoff"]["buy_here"] == "" and first["handoff"]["shop"] == "네이버 스마트스토어"
+    assert "http" not in first["message"] and "네이버 스마트스토어에서" in first["message"]
     oid = first["order"]["order_id"]
     assert c.put(f"/api/orders/{oid}/link", json={"url": "https://evil.example/x"}).status_code == 400
     c.put(f"/api/orders/{oid}/link", json={"url": "https://smartstore.naver.com/shop/products/123"})
