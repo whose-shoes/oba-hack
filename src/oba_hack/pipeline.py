@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 
-from . import catalog, choose, extract, family, notify, payment, policy, store
+from . import account, catalog, choose, extract, family, notify, payment, policy, store
 from .config import data_dir, josa
 
 TEXT_EXT = {".txt", ".md", ".text", ".csv", ".json"}
@@ -69,6 +69,7 @@ def transcript_from_files(call_dir: Path, files: list[dict]) -> tuple[str | None
 
 def register_call(call_id: str, files: list[dict], *, caller: str, source: str, transcript: str | None = None,
                   family_id: str | None = None) -> dict:
+    account.log_family.set(family_id)
     call = {
         "id": call_id, "caller": caller, "source": source, "received_at": now(), "family_id": family_id,
         "files": files, "transcript": transcript, "status": "received", "order_ids": [],
@@ -88,6 +89,7 @@ def process_call(call_id: str) -> dict:
     call = store.get("call", call_id)
     if call is None:
         raise KeyError(call_id)
+    account.log_family.set(call.get("family_id"))
 
     if not call.get("transcript"):
         text, how = transcript_from_files(data_dir() / "calls" / call_id, call.get("files", []))
@@ -123,8 +125,9 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
     caller = call["caller"]
     oid = f"o-{uuid.uuid4().hex[:8]}"
     candidates = catalog.search(req.get("item", ""), req.get("detail", ""), caller)
+    fid = call.get("family_id")
     order = {
-        "id": oid, "call_id": call["id"], "caller": caller, "request": req, "created_at": now(),
+        "id": oid, "call_id": call["id"], "family_id": fid, "caller": caller, "request": req, "created_at": now(),
         "timeline": [], "receipt": None, "attempts": [], "ship_to": _ship_to(call),
     }
     if not candidates:
@@ -138,7 +141,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
     pick = candidates[0]
     ai = choose.choose(req, candidates, family.notes_for(call.get("family_id")),
                        [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")} for h in catalog.history(caller)],
-                       policy.get()["max_per_order"])
+                       policy.get(fid)["max_per_order"])
     if ai:  # SKT A.X K2가 엄마 상황을 보고 고른 상품
         pick = next(c for c in candidates if c["id"] == ai["product_id"])
         pick = {**pick, "reasons": ([f"{ai['engine']} 추천: {ai['reason']}"] if ai["reason"] else []) + pick["reasons"]}
@@ -150,6 +153,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
     bought = any(h["product_id"] == pick["id"] for h in catalog.history(caller))
     decision, reason = policy.decide(
         caller=caller, product=pick, total=total, previously_bought=bought, scam_signals=scam_signals,
+        family_id=fid,
     )
     if budget and total > int(budget) and decision == "auto":
         decision, reason = "ask", f"{josa(caller, '이', '가')} 말한 예산 {won(int(budget))}을 넘어요."
@@ -159,7 +163,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
     _tl(order, f"위임 판단: {decision} — {reason}")
 
     if decision == "auto":
-        if policy.get().get("payment_executor") == "vooy":
+        if policy.get(fid).get("payment_executor") == "vooy":
             order["status"] = "ready_for_vooy"
             _tl(order, "자동결제 범위 → vooy 에이전트가 구매 승인 후 바로 주문·결제")
         else:
@@ -188,7 +192,7 @@ def _tl(order: dict, text: str) -> None:
 
 
 def _pay(order: dict) -> bool:
-    receipt, attempts = payment.pay(order["total"])
+    receipt, attempts = payment.pay(order["total"], order.get("family_id"))
     order["attempts"] += attempts
     for a in attempts:
         _tl(order, f"결제 시도 — {a}")
@@ -224,6 +228,7 @@ def _load(oid: str) -> dict:
     o = store.get("order", oid)
     if o is None:
         raise KeyError(oid)
+    account.log_family.set(o.get("family_id"))
     return o
 
 
@@ -347,7 +352,7 @@ def checkout(oid: str, payment_token: str) -> dict:
         raise ValueError("이미 사용한 결제 토큰이에요.")
     if datetime.now() > datetime.fromisoformat(m["expires_at"]):
         raise ValueError("결제 토큰이 만료됐어요. approve_order로 다시 승인을 받아 주세요.")
-    pol = policy.get()
+    pol = policy.get(o.get("family_id"))
     card = pol["family_payment_method"]
     if o["total"] > m["max_amount"]:
         raise ValueError("승인 금액을 넘어요.")

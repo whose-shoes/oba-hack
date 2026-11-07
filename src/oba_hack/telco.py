@@ -45,8 +45,11 @@ def receive(ev: CallEnded, *, source: str = "SKT 망 연동") -> tuple[dict, str
 
     match = family.match_call(ev.from_number, ev.to_number)
     if match is None:
-        # 번호도 내용도 남기지 않는다
-        store.log("filter", "telco", "🔒 등록되지 않은 번호와의 통화 1건 → 저장하지 않고 폐기")
+        # 번호도 내용도 남기지 않는다. 자녀 번호가 우리 계정이면 그 계정 알림에만 '폐기 1건'을 남긴다.
+        nums = {family.normalize_phone(ev.from_number), family.normalize_phone(ev.to_number)}
+        owner = next((f for f in family.families() if f["child_phone"] in nums), None)
+        store.log("filter", "telco", "🔒 등록되지 않은 번호와의 통화 1건 → 저장하지 않고 폐기",
+                  family_id=owner["id"] if owner else None)
         return {"accepted": False, "reason": "not a registered family call"}, None
 
     fam, parent = match

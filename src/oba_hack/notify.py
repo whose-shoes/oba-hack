@@ -92,6 +92,7 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
 
     return store.put("digest", call["id"], {
         "id": call["id"],
+        "family_id": call.get("family_id"),
         "parent": label,
         "created_at": now(),
         "call": {"received_at": call.get("received_at"), "source": call.get("source"),
@@ -139,8 +140,8 @@ def update_settings(changes: dict) -> dict:
     return public_settings()
 
 
-def stats() -> dict:
-    ds = store.all_docs("digest")
+def stats(family_id: str | None = None) -> dict:
+    ds = [d for d in store.all_docs("digest") if family_id is None or d.get("family_id") == family_id]
     via = [d.get("delivered_via") for d in ds if d["delivered"]]
     return {
         "pending": sum(1 for d in ds if not d["delivered"]),
@@ -150,28 +151,32 @@ def stats() -> dict:
     }
 
 
-def record_poll(count: int, via: str) -> dict:
-    """vooy가 폴링할 때마다 기록 (대시보드에서 5분마다 오는지 확인용)."""
-    st = store.get("settings", "poll") or {}
+def _poll_id(family_id: str | None) -> str:
+    return f"poll:{family_id}" if family_id else "poll"
+
+
+def record_poll(count: int, via: str, family_id: str | None = None) -> dict:
+    """vooy가 폴링할 때마다 계정별로 기록 (대시보드에서 5분마다 오는지 확인용)."""
+    st = store.get("settings", _poll_id(family_id)) or {}
     st.update(last_polled_at=now(), last_count=count, last_via=via,
               polls=st.get("polls", 0) + 1, taken=st.get("taken", 0) + count)
-    return store.put("settings", "poll", st)
+    return store.put("settings", _poll_id(family_id), st)
 
 
-def poll_status() -> dict:
-    return store.get("settings", "poll") or {}
+def poll_status(family_id: str | None = None) -> dict:
+    return store.get("settings", _poll_id(family_id)) or {}
 
 
-def public_settings() -> dict:
+def public_settings(family_id: str | None = None) -> dict:
     s = settings()
     return {
-        "poll": poll_status(),
+        "poll": poll_status(family_id),
         "push_url": s["push_url"],
         "user_id": s["user_id"],
         "push_token_set": bool(s["push_token"]),
         "signing_secret_set": bool(s["signing_secret"]),
         "webhook_on": bool(s["push_url"]),
-        "stats": stats(),
+        "stats": stats(family_id),
     }
 
 
@@ -203,7 +208,7 @@ def _payload(d: dict, s: dict, event: str = "digest.created") -> dict:
         "user_id": s["user_id"],
         "text": d["text"],
         "data": {
-            "digest_id": d["id"], "parent": d["parent"], "created_at": d["created_at"],
+            "digest_id": d["id"], "family_id": d.get("family_id"), "parent": d["parent"], "created_at": d["created_at"],
             "items": d["items"], "other_tasks": d["other_tasks"],
             "reply_tools": {"approve": "approve_order(order_id)", "reject": "reject_order(order_id)",
                             "list": "list_parent_requests()"},
@@ -263,7 +268,9 @@ def send_test() -> dict:
     s = settings()
     if not s["push_url"]:
         return {"ok": False, "result": "웹훅 주소가 없어요."}
-    sample = {"id": f"test-{int(time.time())}", "parent": "엄마", "created_at": now(),
+    from . import account
+
+    sample = {"id": f"test-{int(time.time())}", "family_id": account.log_family.get(), "parent": "엄마", "created_at": now(),
               "text": "[테스트] don't call me, Mama 웹훅 연결 확인 메시지예요.", "items": [], "other_tasks": []}
     ok, info = _post(_payload(sample, s, event="test"), s, sample["id"])
     store.log("vooy_sent" if ok else "vooy_retry", "test", f"vooy 웹훅 테스트 발송: {'성공' if ok else '실패'} ({info})")
@@ -272,8 +279,9 @@ def send_test() -> dict:
 
 # ---------- 크론 (vooy가 가져감) ----------
 
-def pending() -> list[dict]:
-    return sorted((d for d in store.all_docs("digest") if not d["delivered"] and not d.get("in_flight")),
+def pending(family_id: str | None = None) -> list[dict]:
+    return sorted((d for d in store.all_docs("digest") if not d["delivered"] and not d.get("in_flight")
+                   and (family_id is None or d.get("family_id") == family_id)),
                   key=lambda d: d["created_at"])
 
 
@@ -289,14 +297,14 @@ def mark_delivered(ids: list[str], via: str) -> int:
     return n
 
 
-def take_pending(via: str) -> list[dict]:
-    """아직 안 간 정리본을 가져가며 전달됨으로 표시한다 (웹훅 발송과 겹치지 않게 잠금)."""
+def take_pending(via: str, family_id: str | None = None) -> list[dict]:
+    """그 계정의 아직 안 간 정리본을 가져가며 전달됨으로 표시한다 (웹훅 발송과 겹치지 않게 잠금)."""
     with _lock:
-        items = pending()
+        items = pending(family_id)
         mark_delivered([d["id"] for d in items], via)
-    record_poll(len(items), via)
+    record_poll(len(items), via, family_id)
     if items:
-        store.log("vooy_polled", via, f"💬 vooy가 폴링으로 정리본 {len(items)}건을 가져감")
+        store.log("vooy_polled", via, f"💬 vooy가 폴링으로 정리본 {len(items)}건을 가져감", family_id=family_id)
     return items
 
 

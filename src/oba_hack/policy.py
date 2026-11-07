@@ -32,31 +32,34 @@ DEFAULT = {
 }
 
 
-def get() -> dict:
-    p = store.get("policy", "default")
+def get(family_id: str | None = None) -> dict:
+    """계정별 위임 정책. 계정 정책이 없으면 기본값(default)을 쓴다."""
+    p = store.get("policy", family_id) if family_id else None
     if p is None:
-        p = store.put("policy", "default", dict(DEFAULT))
+        p = store.get("policy", "default") or store.put("policy", "default", dict(DEFAULT))
     return {**DEFAULT, **p}
 
 
-def update(changes: dict) -> dict:
-    p = get()
+def update(changes: dict, family_id: str | None = None) -> dict:
+    p = get(family_id)
     for k, v in changes.items():
         if k in DEFAULT:
             p[k] = v
-    return store.put("policy", "default", p)
+    return store.put("policy", family_id or "default", p)
 
 
-def spent_this_month() -> int:
+def spent_this_month(family_id: str | None = None) -> int:
     month = datetime.now().strftime("%Y-%m")
     return sum(
         o["total"] for o in store.all_docs("order")
         if o["status"] == "paid" and o.get("paid_at", "").startswith(month)
+        and (family_id is None or o.get("family_id") == family_id)
     )
 
 
-def decide(*, caller: str, product: dict, total: int, previously_bought: bool, scam_signals: list[str]) -> tuple[str, str]:
-    p = get()
+def decide(*, caller: str, product: dict, total: int, previously_bought: bool, scam_signals: list[str],
+           family_id: str | None = None) -> tuple[str, str]:
+    p = get(family_id)
     if product["category"] in p["blocked_categories"]:
         return "block", f"{josa(product['category'], '은', '는')} 대신 결제하지 않는 품목이에요 (보이스피싱 단골 수법)."
     if scam_signals:
@@ -65,7 +68,7 @@ def decide(*, caller: str, product: dict, total: int, previously_bought: bool, s
         return "block", f"등록되지 않은 발신자({caller})의 요청이에요."
     if total > p["max_per_order"]:
         return "ask", f"1회 한도 {p['max_per_order']:,}원을 넘어요."
-    if spent_this_month() + total > p["monthly_budget"]:
+    if spent_this_month(family_id) + total > p["monthly_budget"]:
         return "ask", f"이번 달 예산 {p['monthly_budget']:,}원을 넘어요."
     if total <= p["auto_approve_limit"] and (previously_bought or p["auto_approve_new_items"]):
         why = "늘 사던 상품" if previously_bought else "자동결제 허용"

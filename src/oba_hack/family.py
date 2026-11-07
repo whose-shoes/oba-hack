@@ -32,8 +32,36 @@ def mask_phone(raw: str | None) -> str:
     return f"{d[:3]}-****-{d[-4:]}" if len(d) >= 9 else d
 
 
+def _ensure_tokens(fam: dict) -> dict:
+    """예전 계정에도 개인 MCP 주소·대시보드 토큰을 채워 준다."""
+    if not fam.get("mcp_token") or not fam.get("dashboard_token"):
+        fam.setdefault("mcp_token", secrets.token_urlsafe(16))
+        fam.setdefault("dashboard_token", secrets.token_urlsafe(16))
+        store.put("family", fam["id"], fam)
+    return fam
+
+
 def families() -> list[dict]:
-    return store.all_docs("family")
+    return [_ensure_tokens(f) for f in store.all_docs("family")]
+
+
+def get(family_id: str | None) -> dict | None:
+    fam = store.get("family", family_id) if family_id else None
+    return _ensure_tokens(fam) if fam else None
+
+
+def by_mcp_token(token: str) -> dict | None:
+    for fam in families():
+        if token and secrets.compare_digest(token.encode(), fam["mcp_token"].encode()):
+            return fam
+    return None
+
+
+def by_dashboard_token(token: str) -> dict | None:
+    for fam in families():
+        if token and secrets.compare_digest(token.encode(), fam["dashboard_token"].encode()):
+            return fam
+    return None
 
 
 def current() -> dict | None:
@@ -78,16 +106,19 @@ def register(child_name: str, child_phone: str, parents: list[dict]) -> dict:
         "child_name": name,
         "child_phone": child,
         "upload_token": secrets.token_urlsafe(24),
+        "mcp_token": secrets.token_urlsafe(16),        # 개인 vooy 연결 주소 /mcp/<토큰>
+        "dashboard_token": secrets.token_urlsafe(16),  # 개인 대시보드 링크 /?a=<토큰>
         "created_at": now(),
         "parents": ps,
     }
     store.put("family", fam["id"], fam)
-    pol = policy.get()
+    pol = policy.get(fam["id"])
     labels = [p["label"] for p in ps if p["label"] not in pol["trusted_callers"]]
     if labels:
-        policy.update({"trusted_callers": pol["trusted_callers"] + labels})
+        policy.update({"trusted_callers": pol["trusted_callers"] + labels}, fam["id"])
     for p in ps:
-        store.log("push_to_child", fam["id"], f"✅ {josa(p['label'], '과', '와')} 연결했어요({mask_phone(p['phone'])}). 이제 통화가 끝나면 알아서 정리해요.")
+        store.log("push_to_child", fam["id"], f"✅ {josa(p['label'], '과', '와')} 연결했어요({mask_phone(p['phone'])}). "
+                  "이제 통화가 끝나면 알아서 정리해요.", family_id=fam["id"])
     return fam
 
 
@@ -186,11 +217,17 @@ def match_sender(raw: str, fam: dict | None = None) -> tuple[dict, dict] | None:
     return None
 
 
+def links(fam: dict) -> dict:
+    import os
+    base = os.environ.get("OBA_PUBLIC_URL", "").rstrip("/")
+    return {"mcp_url": f"{base}/mcp/{fam['mcp_token']}", "dashboard_url": f"{base}/?a={fam['dashboard_token']}"}
+
+
 def public(fam: dict | None) -> dict | None:
     """화면용: 번호는 가린다."""
     if fam is None:
         return None
-    return {
+    return {**links(fam), "dashboard_token": fam["dashboard_token"],
         "id": fam["id"],
         "child_name": fam["child_name"],
         "child_phone": mask_phone(fam["child_phone"]),

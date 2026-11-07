@@ -27,9 +27,9 @@ def _charge(method: dict, amount: int, pol: dict) -> dict:
     }
 
 
-def pay(amount: int) -> tuple[dict | None, list[str]]:
+def pay(amount: int, family_id: str | None = None) -> tuple[dict | None, list[str]]:
     """(성공 영수증 또는 None, 시도 기록)"""
-    pol = policy.get()
+    pol = policy.get(family_id)
     attempts = []
     for m in pol["payment_methods"]:
         try:

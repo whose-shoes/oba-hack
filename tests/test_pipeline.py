@@ -1,6 +1,13 @@
 from oba_hack import extract
 
 
+def login(c, child="010-1234-5678", mom="010-2345-6789"):
+    from oba_hack import family
+    fam = family.register("지누", child, [{"label": "엄마", "phone": mom}])
+    c.headers["X-Account"] = fam["dashboard_token"]
+    return fam
+
+
 def _run(c, sample_id):
     s = next(x for x in c.get("/api/samples").json() if x["id"] == sample_id)
     c.post("/api/calls", json={"transcript": s["transcript"], "caller": s["caller"]})
@@ -21,6 +28,7 @@ def test_extract_ignores_child_and_keeps_evidence():
 
 def test_daily_call_auto_pays_known_items_and_asks_for_new(client):
     c, _ = client
+    login(c)
     st = _run(c, "1-daily")
     o = by_product(st)
     assert o["p-tissue-30"]["status"] == "paid"
@@ -33,6 +41,7 @@ def test_daily_call_auto_pays_known_items_and_asks_for_new(client):
 
 def test_scam_call_is_blocked(client):
     c, _ = client
+    login(c)
     st = _run(c, "2-scam")
     assert [o["status"] for o in st["orders"]] == ["blocked"]
     assert not [e for e in st["events"] if e["kind"] == "sms_to_mom"]
@@ -40,6 +49,7 @@ def test_scam_call_is_blocked(client):
 
 def test_approve_swap_cancel_and_payment_recovery(client):
     c, _ = client
+    login(c)
     st = _run(c, "3-health")
     o = by_product(st)
     ginseng, rice = o["p-redginseng"], o["p-rice-10"]
@@ -66,6 +76,7 @@ def test_approve_swap_cancel_and_payment_recovery(client):
 
 def test_untrusted_caller_blocked_and_policy_change_allows_new_items(client):
     c, _ = client
+    login(c)
     c.post("/api/calls", json={"transcript": "샴푸 다 썼어. 하나 사줘.", "caller": "이모"})
     assert c.get("/api/state").json()["orders"][0]["status"] == "blocked"
 
@@ -124,6 +135,7 @@ def test_llm_receives_redacted_transcript(monkeypatch):
 
 def test_dashboard_approve_only_authorizes_in_vooy_mode(client):
     c, _ = client
+    login(c)
     c.put("/api/policy", json={"payment_executor": "vooy"})
     st = _run(c, "3-health")
     rice = by_product(st)["p-rice-10"]
@@ -135,6 +147,7 @@ def test_ax_chooses_product_with_reason_and_falls_back(client, monkeypatch):
     from oba_hack import llm
 
     c, _ = client
+    login(c)
     def fake(system, user, timeout=40.0):
         if "쇼핑 비서" in system:   # 상품 선택 요청
             return {"product_id": "p-chondroitin-b", "reason": "소화가 약하셔서 부담 적은 제품으로 골랐어요",

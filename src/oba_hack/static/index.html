@@ -181,6 +181,9 @@ ul.tl li{margin:2px 0}
 .tabbar .badge{position:absolute;top:8px;left:calc(50% + 6px);min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--fg-negative);color:#fff;font-size:.6875rem;line-height:18px;text-align:center}
 .tabbar .badge:empty{display:none}
 [hidden]{display:none!important}
+body.no-account main>.panel:not([data-panel=home]),body.no-account .tabbar,
+body.no-account [data-panel=home] section:not(#onboard){display:none!important}
+@media (min-width:1024px){body.no-account main{grid-template-columns:minmax(0,640px);grid-template-areas:"home";justify-content:center}}
 </style>
 </head>
 <body data-tab="home">
@@ -294,7 +297,7 @@ function renderOnboard(f, mcpUrl) {
   $("#simmsg").textContent = ready ? "" : "가입하고 엄마 번호를 등록하면 시뮬레이션할 수 있어요.";
   if (!f) {
     el.innerHTML = `<h2>시작하기: 엄마 번호만 등록하면 끝</h2>
-      <div class="sub">엄마와의 통화가 끝나면 그 통화만 처리해요. 다른 통화는 저장하지 않아요.</div>
+      <div class="sub">가입하면 나만의 vooy 연결 주소와 대시보드 링크가 생겨요. 엄마와의 통화만 처리하고, 다른 통화는 저장하지 않아요.</div>
       <div class="form">
         <label>내 이름<input id="s_name" value="지누"></label>
         <label>내 번호<input id="s_phone" value="010-1234-5678" inputmode="tel"></label>
@@ -307,7 +310,8 @@ function renderOnboard(f, mcpUrl) {
     el.classList.add("done");
     el.innerHTML = `<div class="row between"><span>✅ <b>${esc(mom.label)}</b>(${esc(mom.phone)})와 연동됨 · 통화가 끝나면 알아서 처리해요</span></div>
       <details><summary>vooy 연결 (MCP)</summary>
-        <div class="sub small" style="margin-top:6px">vooy ‘서비스 연결’에 이 주소를 넣으세요: <code>${esc(mcpUrl)}</code><br>
+        <div class="sub small" style="margin-top:6px">vooy ‘서비스 연결’에 <b>내 개인 주소</b>를 넣으세요: <code>${esc(mcpUrl)}</code><br>
+        내 대시보드 링크(다른 기기에서 열 때): <code>${esc(f.dashboard_url || "")}</code><br>
         통화가 끝나면 정리본을 vooy로 먼저 보내고, 자녀가 vooy에서 “응 결제해”라고 하면 결제돼요.</div>
       </details>
       <details><summary>지금 바로 쓰는 아이폰 연결 (에이닷 공유 1탭 · 엄마 문자 자동화)</summary>
@@ -318,8 +322,16 @@ function renderOnboard(f, mcpUrl) {
   }
 }
 
+const _params = new URLSearchParams(location.search);
+let ACCOUNT = _params.get("a") || (() => { try { return localStorage.getItem("dcmm-account"); } catch (_) { return null; } })();
+if (_params.get("a")) { try { localStorage.setItem("dcmm-account", _params.get("a")); } catch (_) {} }
+function setAccount(tok) {
+  ACCOUNT = tok;
+  try { tok ? localStorage.setItem("dcmm-account", tok) : localStorage.removeItem("dcmm-account"); } catch (_) {}
+}
 async function api(path, opts={}) {
-  const r = await fetch(path, {headers:{"Content-Type":"application/json"}, ...opts});
+  const r = await fetch(path, {headers:{"Content-Type":"application/json", "X-Account": ACCOUNT || ""}, ...opts});
+  if (r.status === 401) { const e = new Error("unauthorized"); e.status = 401; throw e; }
   if (!r.ok) { const t = await r.text(); console.log("api error", t); throw new Error(t); }
   return r.json();
 }
@@ -391,8 +403,10 @@ function render(s) {
 }
 
 async function refresh() {
+  if (!ACCOUNT) { document.body.classList.add("no-account"); if (famKey !== "none") { famKey = "none"; renderOnboard(null, ""); } return; }
   try {
-    const s = await api("/api/state"); const key = JSON.stringify([s.orders, s.calls, s.events.length, s.spent_this_month]);
+    const s = await api("/api/state");
+    document.body.classList.remove("no-account"); const key = JSON.stringify([s.orders, s.calls, s.events.length, s.spent_this_month]);
     const fk = JSON.stringify([s.family, s.mcp_url]);
     if (fk !== famKey) { famKey = fk; fam = s.family; renderOnboard(s.family, s.mcp_url); }
     const top = s.events.length ? s.events[0].seq : 0;
@@ -405,7 +419,9 @@ async function refresh() {
     }
     maxSeq = top;
     if (key !== last && !document.activeElement?.dataset?.tr) { last = key; render(s); }
-  } catch (e) {}
+  } catch (e) {
+    if (e.status === 401) { setAccount(null); famKey = null; refresh(); }
+  }
 }
 
 document.addEventListener("click", async e => {
@@ -417,14 +433,17 @@ document.addEventListener("click", async e => {
     else if (t.dataset.sample) { const s = samples.find(x => x.id === t.dataset.sample); $("#transcript").value = s.transcript; $("#who").value = s.caller === "엄마" ? "parent" : "unknown"; return; }
     else if (t.id === "signup") {
       try {
-        await api("/api/families", {method:"POST", body:JSON.stringify({child_name:$("#s_name").value, child_phone:$("#s_phone").value,
+        const made = await api("/api/families", {method:"POST", body:JSON.stringify({child_name:$("#s_name").value, child_phone:$("#s_phone").value,
           parents:[{label:$("#s_label").value || "엄마", phone:$("#s_mphone").value, address:$("#s_addr").value}]})});
+        setAccount(made.dashboard_token);
+        location.href = "/?a=" + encodeURIComponent(made.dashboard_token);
+        return;
       } catch (err) {
         let d; try { d = JSON.parse(err.message).detail; } catch (_) {}
         $("#s_err").textContent = typeof d === "string" ? d : "가입 정보를 확인해 주세요."; return;
       }
     }
-    else if (t.dataset.leave) { await api(`/api/families/${t.dataset.leave}`, {method:"DELETE"}); }
+    else if (t.dataset.leave) { await api(`/api/families/${t.dataset.leave}`, {method:"DELETE"}); setAccount(null); location.href = "/"; return; }
     else return;
   } catch (err) { console.log(err); }
   last = ""; famKey = null; refresh();

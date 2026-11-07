@@ -57,7 +57,12 @@ def all_docs(kind: str) -> list[dict]:
 
 
 def log(kind: str, ref: str, text: str, **extra) -> dict:
+    from . import account
+
+    fid = extra.pop("family_id", None) or account.log_family.get()
     ev = {"ts": time.time(), "kind": kind, "ref": ref, "text": text, **extra}
+    if fid:
+        ev["family_id"] = fid
     with _lock:
         db = _db()
         cur = db.execute(
@@ -70,7 +75,12 @@ def log(kind: str, ref: str, text: str, **extra) -> dict:
     return ev
 
 
-def events(limit: int = 200) -> list[dict]:
+def events(limit: int = 200, family_id: str | None = None) -> list[dict]:
+    """최근 이벤트. family_id를 주면 그 계정 것만."""
     with _lock:
-        rows = _db().execute("select seq, body from events order by seq desc limit ?", (limit,)).fetchall()
-    return [{**json.loads(b), "seq": s} for s, b in rows]
+        rows = _db().execute("select seq, body from events order by seq desc limit ?",
+                             (limit * 20 if family_id else limit,)).fetchall()
+    out = [{**json.loads(b), "seq": s} for s, b in rows]
+    if family_id:
+        out = [e for e in out if e.get("family_id") == family_id][:limit]
+    return out

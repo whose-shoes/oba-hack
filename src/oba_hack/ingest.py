@@ -19,7 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from fastapi.responses import JSONResponse
 from starlette.datastructures import UploadFile  # request.form()이 돌려주는 타입
 
-from . import family, pipeline, store
+from . import account, family, pipeline, store
 from .config import data_dir, default_caller, max_upload_bytes, upload_token
 
 router = APIRouter()
@@ -112,12 +112,17 @@ async def upload_call(request: Request, background: BackgroundTasks, auth: dict 
         match = family.match_sender(caller_number, fam)
         if match is None:
             # 번호도 내용도 남기지 않는다
-            store.log("filter", "upload", "🔒 등록되지 않은 발신자의 기록 1건 → 저장하지 않고 폐기")
+            store.log("filter", "upload", "🔒 등록되지 않은 발신자의 기록 1건 → 저장하지 않고 폐기",
+                      family_id=fam["id"] if fam else None)
             return JSONResponse({"accepted": False, "reason": "not a registered parent"},
                                 status_code=status.HTTP_202_ACCEPTED)
         fam, parent = match
         caller = parent["label"]
 
+    if fam is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "어느 가족의 통화인지 알 수 없어요. 가족 업로드 토큰을 쓰거나 caller_number로 부모님 번호를 알려 주세요.")
+    account.log_family.set(fam["id"])
     caller = caller or default_caller()
     call_id, files = save_files(items)
     meta = {"call_id": call_id, "caller": caller, "files": files, "status": "received", "source": src,

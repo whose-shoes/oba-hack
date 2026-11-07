@@ -2,6 +2,14 @@ import json
 
 from conftest import AUTH
 
+from oba_hack import family
+
+
+def fam_auth(c):
+    fam = family.register("지누", "010-1234-5678", [{"label": "엄마", "phone": "010-2345-6789"}])
+    c.headers["X-Account"] = fam["dashboard_token"]
+    return {"Authorization": f"Bearer {fam['upload_token']}"}
+
 
 def test_rejects_bad_token(client):
     c, _ = client
@@ -13,7 +21,7 @@ def test_multipart_audio_and_text(client):
     c, tmp = client
     r = c.post(
         "/v1/calls",
-        headers=AUTH,
+        headers=fam_auth(c),
         files={"file": ("../../엄마 통화.m4a", b"\x00audio", "audio/x-m4a")},
         data={"text": "엄마: 휴지 다 떨어졌어. 하나 시켜줘."},
     )
@@ -33,7 +41,7 @@ def test_raw_text_body_with_caller_header(client):
     c, _ = client
     r = c.post(
         "/v1/calls",
-        headers={**AUTH, "Content-Type": "text/plain; charset=utf-8", "X-Caller": "%EC%97%84%EB%A7%88"},
+        headers={**fam_auth(c), "Content-Type": "text/plain; charset=utf-8", "X-Caller": "%EC%97%84%EB%A7%88"},
         content="엄마: 김 좀 사줘".encode(),
     )
     assert r.status_code == 201
@@ -43,7 +51,7 @@ def test_raw_text_body_with_caller_header(client):
 
 def test_audio_only_waits_for_transcript(client):
     c, _ = client
-    r = c.post("/v1/calls", headers=AUTH, files={"file": ("call.m4a", b"\x00", "audio/x-m4a")})
+    r = c.post("/v1/calls", headers=fam_auth(c), files={"file": ("call.m4a", b"\x00", "audio/x-m4a")})
     cid = r.json()["call_id"]
     call = next(x for x in c.get("/api/state").json()["calls"] if x["id"] == cid)
     assert call["status"] == "needs_transcript"
@@ -55,3 +63,9 @@ def test_audio_only_waits_for_transcript(client):
 def test_empty_upload(client):
     c, _ = client
     assert c.post("/v1/calls", headers=AUTH, content=b"").status_code == 400
+
+
+def test_global_token_without_parent_is_rejected(client):
+    c, _ = client
+    r = c.post("/v1/calls", headers={**AUTH, "Content-Type": "text/plain"}, content="엄마: 김 사줘".encode())
+    assert r.status_code == 400

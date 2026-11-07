@@ -16,6 +16,7 @@ MOCK = "http://127.0.0.1:8765/mock/vooy/webhook"
 
 def setup_family(c):
     fam = family.register("지누", CHILD, [{"label": "엄마", "phone": MOM}])
+    c.headers["X-Account"] = fam["dashboard_token"]
     return fam
 
 
@@ -37,7 +38,7 @@ def route_to_app(c, tamper=False, fail_first=0):
     return fake_post, state
 
 
-def cron_tool():
+def cron_tool(fid=None):
     from oba_hack.mcp_server import server
 
     async def run():
@@ -45,7 +46,13 @@ def cron_tool():
             r = await cl.call_tool("get_new_parent_requests", {})
             return getattr(r, "structured_content", None) or json.loads(r.content[0].text)
 
-    return asyncio.run(run())
+    from oba_hack import account
+    cur = family.current()
+    tok = account.override.set(fid if fid is not None else (cur["id"] if cur else None))
+    try:
+        return asyncio.run(run())
+    finally:
+        account.override.reset(tok)
 
 
 def events(c, kind):
@@ -56,12 +63,12 @@ def test_webhook_with_token_and_signature_reaches_vooy_once(client, monkeypatch)
     c, _ = client
     fake, state = route_to_app(c)
     monkeypatch.setattr(notify.httpx, "post", fake)
+    setup_family(c)
     r = c.put("/api/vooy", json={"push_url": MOCK, "push_token": "t0ken-value", "user_id": "child-1",
                                  "signing_secret": "s3cr3t-value"})
     assert r.status_code == 200 and r.json()["webhook_on"] and r.json()["signing_secret_set"]
     shown = json.dumps(r.json()) + json.dumps(c.get("/api/state").json())
     assert "s3cr3t-value" not in shown and "t0ken-value" not in shown   # 토큰·서명 비밀은 화면/API에 안 나온다
-    setup_family(c)
     call_ends(c)
     arrived = events(c, "vooy_mock")
     assert len(arrived) == 1 and "서명 확인" in arrived[0]["text"] and "결제할까요" in arrived[0]["text"]
@@ -74,8 +81,8 @@ def test_bad_signature_is_rejected_and_cron_picks_it_up(client, monkeypatch):
     c, _ = client
     fake, _ = route_to_app(c, tamper=True)
     monkeypatch.setattr(notify.httpx, "post", fake)
-    c.put("/api/vooy", json={"push_url": MOCK, "signing_secret": "sec"})
     setup_family(c)
+    c.put("/api/vooy", json={"push_url": MOCK, "signing_secret": "sec"})
     call_ends(c)
     assert events(c, "vooy_mock") == []                  # 모의 vooy가 401로 거절
     new = cron_tool()["new"]
@@ -88,8 +95,8 @@ def test_webhook_retries_with_backoff(client, monkeypatch):
     c, _ = client
     fake, state = route_to_app(c, fail_first=1)
     monkeypatch.setattr(notify.httpx, "post", fake)
-    c.put("/api/vooy", json={"push_url": MOCK})
     setup_family(c)
+    c.put("/api/vooy", json={"push_url": MOCK})
     call_ends(c)
     assert c.get("/api/vooy").json()["stats"]["pending"] == 1
     assert notify.retry_pending() == 0                   # 백오프 시간 전이라 아직 안 보냄
@@ -126,6 +133,7 @@ def test_rest_cron_poll_and_ack(client):
 
 def test_settings_validation_and_test_send(client, monkeypatch):
     c, _ = client
+    setup_family(c)
     assert c.put("/api/vooy", json={"push_url": "http://example.com/hook"}).status_code == 400
     assert c.post("/api/vooy/test").json()["ok"] is False
     fake, _ = route_to_app(c)
@@ -138,11 +146,11 @@ def test_settings_validation_and_test_send(client, monkeypatch):
 def test_five_minute_polling_contract(client):
     """vooy가 5분마다 부르는 도구: 새 통화 데이터가 있을 때만 넘겨주고, 없으면 조용히."""
     c, _ = client
+    setup_family(c)
     empty = cron_tool()
     assert empty["has_new"] is False and empty["notify_user"] is False and empty["message"] == ""
     assert empty["poll_interval_sec"] == 300
 
-    setup_family(c)
     call_ends(c)
     got = cron_tool()
     assert got["has_new"] is True and got["count"] == 1 and got["notify_user"] is True

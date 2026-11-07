@@ -7,10 +7,12 @@ TALK = "엄마: 휴지가 다 떨어졌어. 하나 시켜줘.\n나: 응 알았�
 
 
 def signup(c):
-    return c.post("/api/families", json={
+    fam = c.post("/api/families", json={
         "child_name": "지누", "child_phone": CHILD,
         "parents": [{"label": "엄마", "phone": MOM}],
     }).json()
+    c.headers["X-Account"] = fam["dashboard_token"]
+    return fam
 
 
 def call_ended(c, frm, to, text=TALK, call_id=None):
@@ -79,7 +81,7 @@ def test_duplicate_webhook_is_ignored(client):
 
 def test_simulator_uses_same_filter(client):
     c, _ = client
-    assert c.post("/api/simulate/call-ended", json={"transcript": TALK}).status_code == 409
+    assert c.post("/api/simulate/call-ended", json={"transcript": TALK}).status_code == 401  # 계정 없이 불가
     signup(c)
     assert c.post("/api/simulate/call-ended", json={"transcript": TALK}).json()["accepted"]
     assert not c.post("/api/simulate/call-ended", json={"transcript": TALK, "who": "unknown"}).json()["accepted"]

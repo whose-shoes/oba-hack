@@ -14,15 +14,17 @@ import secrets
 from datetime import datetime
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import ToolAnnotations
 
-from . import catalog, family, notify, pipeline, policy, store
+from . import account, catalog, family, notify, pipeline, policy, store
 from .config import josa
 
 INSTRUCTIONS = """don't call me, Mama: 엄마(부모님)와 자녀가 통화를 마치면 엄마의 부탁을 정리해 주문까지 돕는 서비스입니다.
 - 처음 연결했거나 상태가 궁금하면 get_family_status를 먼저 부르세요. 등록 전이면 사용자에게 엄마 호칭·엄마 전화번호·
   내(사용자) 전화번호·배송지·엄마의 선호/건강 메모를 대화로 물어 setup_parent로 등록하세요. 한 번에 다 묻지 말고 필요한 것부터.
+- 공용(가입용) 주소로 가입하면 setup_parent가 사용자 전용 연결 주소(mcp_url)를 돌려줍니다. 사용자에게 그 주소를 보여 주고
+  vooy 서비스 연결의 MCP 주소를 그 개인 주소로 바꾸라고 안내하세요. 개인 주소로 바꿔야 그 사용자 데이터만 다룹니다.
 - 결제(approve_order)와 취소(cancel_order)는 반드시 상품·수량·금액을 보여 주고 사용자가 분명히 동의한 뒤에만 부르세요.
 - 🚫(결제 안 함) 항목은 결제를 제안하지 말고 엄마께 직접 확인하라고 안내하세요.
 - 결과를 전할 때 엄마께 보낸 문자 내용도 함께 알려 주세요. 결제는 모두 테스트 결제입니다.
@@ -41,14 +43,41 @@ def won(n: int | None) -> str:
     return f"{(n or 0):,}원"
 
 
-def _policy_brief() -> dict:
-    p = policy.get()
+SHARED_MSG = ("이 연결 주소는 가입용 공용 주소예요. 엄마 번호와 내 번호를 알려 주시면 계정을 만들고 개인 연결 주소를 드릴게요. "
+              "이미 가입했다면 vooy 서비스 연결의 MCP 주소를 개인 주소로 바꿔 주세요.")
+
+
+def _account(ctx: Context | None) -> dict | None:
+    """이 요청이 어느 계정 것인지: 개인 주소(/mcp/<계정 토큰>)로 판별. 공용(가입용) 주소면 None."""
+    fid = account.override.get()
+    fam = family.get(fid) if fid else None
+    if fam is None and not fid:
+        req = None
+        try:
+            req = ctx.request_context.request if ctx is not None else None
+        except Exception:
+            req = None
+        if req is not None:
+            token = (getattr(req, "path_params", None) or {}).get("token") \
+                or str(getattr(getattr(req, "url", None), "path", "")).rstrip("/").rsplit("/", 1)[-1]
+            if token and token != MCP_TOKEN:
+                fam = family.by_mcp_token(token)
+    account.log_family.set(fam["id"] if fam else None)
+    return fam
+
+
+def _need_account() -> dict[str, Any]:
+    return {"ok": False, "need_personal_url": True, "message": SHARED_MSG}
+
+
+def _policy_brief(fid: str) -> dict:
+    p = policy.get(fid)
     return {
         "자동결제_한도": won(p["auto_approve_limit"]),
         "처음_사는_상품도_자동결제": p["auto_approve_new_items"],
         "1회_최대": won(p["max_per_order"]),
         "월_예산": won(p["monthly_budget"]),
-        "이번_달_사용": won(policy.spent_this_month()),
+        "이번_달_사용": won(policy.spent_this_month(fid)),
         "차단_품목": p["blocked_categories"],
     }
 
@@ -61,14 +90,14 @@ AUTO_CHECK = {
 }
 
 
-def _auto_check_on() -> bool:
-    """vooy가 최근 10분 안에 폴링했으면 자동 확인이 켜진 것으로 본다."""
-    last = notify.poll_status().get("last_polled_at")
+def _auto_check_on(fid: str) -> bool:
+    """vooy가 최근 10분 안에 이 계정을 폴링했으면 자동 확인이 켜진 것으로 본다."""
+    last = notify.poll_status(fid).get("last_polled_at")
     return bool(last) and (datetime.now() - datetime.fromisoformat(last)).total_seconds() < 600
 
 
-def _with_auto_check(out: dict[str, Any]) -> dict[str, Any]:
-    if not _auto_check_on():
+def _with_auto_check(out: dict[str, Any], fid: str) -> dict[str, Any]:
+    if not _auto_check_on(fid):
         out["auto_check_needed"] = True
         out["next_action"] = ("vooy 반복 작업(일정) 기능으로 5분마다 get_new_parent_requests를 실행하는 반복 작업을 만들어 주세요. "
                               "그래야 엄마와 통화가 끝나면 5분 안에 자녀에게 정리본이 갑니다.")
@@ -76,14 +105,14 @@ def _with_auto_check(out: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _find_order(ref: str, statuses: tuple[str, ...]) -> dict | None:
-    """order_id로 찾고, 없으면 상품명·품목명 일부로 찾는다 (vooy가 이름으로 넘겨도 동작하도록)."""
+def _find_order(ref: str, statuses: tuple[str, ...], fid: str) -> dict | None:
+    """이 계정의 주문을 order_id로 찾고, 없으면 상품명·품목명 일부로 찾는다 (vooy가 이름으로 넘겨도 동작하도록)."""
     o = store.get("order", ref.strip())
-    if o:
+    if o and o.get("family_id") == fid:
         return o
     key = ref.strip().lower()
     for o in store.all_docs("order"):
-        if o["status"] not in statuses:
+        if o.get("family_id") != fid or o["status"] not in statuses:
             continue
         names = [(o["request"].get("item") or ""), ((o.get("product") or {}).get("name") or "")]
         if any(key and (key in n.lower() or n.lower() in key) for n in names if n):
@@ -104,19 +133,19 @@ def _brief(o: dict) -> dict:
     ),
     annotations=READ,
 )
-def get_family_status() -> dict[str, Any]:
-    fam = family.current()
+def get_family_status(ctx: Context) -> dict[str, Any]:
+    fam = _account(ctx)
     if fam is None:
         return {
-            "set_up": False,
+            "set_up": False, "shared_url": True,
             "message": "아직 엄마 정보가 없어요. 엄마 전화번호와 내 전화번호를 알려 주시면 연결할게요. "
                        "배송지, 엄마가 늘 쓰시는 물건, 건강 정보도 말로 알려 주시면 함께 기억해요.",
         }
     p = fam["parents"][0]
     msg = f"{josa(p['label'], '과', '와')} 연결돼 있어요. 통화가 끝나면 부탁을 정리해서 먼저 알려 드릴게요."
     return _with_auto_check({"set_up": True, "message": msg,
-                             "auto_check_on": _auto_check_on(), "family": family.summary(fam),
-                             "delegation": _policy_brief()})
+                             "auto_check_on": _auto_check_on(fam["id"]), "family": family.summary(fam),
+                             "delegation": _policy_brief(fam["id"])}, fam["id"])
 
 
 @server.tool(
@@ -140,23 +169,30 @@ def setup_parent(
     birthday: str | None = None,
     note: str | None = None,
     child_name: str | None = None,
+    ctx: Context | None = None,
 ) -> dict[str, Any]:
-    fam = family.current()
-    if fam is not None and child_phone and family.normalize_phone(child_phone) != fam["child_phone"]:
-        fam = None  # 다른 자녀 번호 → 다른 계정의 새 등록
+    fam = _account(ctx)
     try:
-        if fam is None:
+        if fam is None:  # 공용(가입용) 주소 → 새 계정
             need = [n for n, v in (("엄마 전화번호", parent_phone), ("내 전화번호", child_phone)) if not v]
             if need:
                 return {"ok": False, "need": need,
                         "message": f"처음 연결이라 {', '.join(need)}가 필요해요. 알려 주시면 바로 등록할게요."}
+            if any(f["child_phone"] == family.normalize_phone(child_phone) for f in family.families()):
+                return {"ok": False, "already_registered": True,
+                        "message": "이미 가입된 번호예요. 가입할 때 받은 개인 연결 주소로 vooy를 연결해 주세요 "
+                                   "(개인 대시보드에서도 확인할 수 있어요)."}
             fam = family.register(child_name or "자녀", child_phone, [{
                 "label": parent_label or "엄마", "phone": parent_phone, "name": parent_name, "address": address,
                 "birthday": birthday, "notes": [note] if note else [],
             }])
+            account.log_family.set(fam["id"])
             label = fam["parents"][0]["label"]
-            return _with_auto_check({"ok": True, "created": True, "family": family.summary(fam),
-                    "message": f"{label} 정보를 등록하고 바로 연결했어요. 이제 {josa(label, '과', '와')} 통화가 끝날 때마다 부탁을 정리해 드려요."})
+            links = family.links(fam)
+            return {"ok": True, "created": True, "family": family.summary(fam), **links,
+                    "message": (f"{label} 정보를 등록하고 계정을 만들었어요. 이제 vooy 서비스 연결의 MCP 주소를 "
+                                f"이 개인 주소로 바꿔 주세요: {links['mcp_url']} — 그 뒤로 {josa(label, '과', '와')} "
+                                f"통화가 끝날 때마다 부탁을 정리해 드려요. 내 대시보드: {links['dashboard_url']}")}
         fam, changed = family.update(
             fam["id"], child_name=child_name, child_phone=child_phone, label=parent_label, name=parent_name,
             phone=parent_phone, address=address, birthday=birthday, note=note,
@@ -177,8 +213,11 @@ def setup_parent(
     ),
     annotations=READ,
 )
-def list_parent_requests(include_done: bool = False) -> dict[str, Any]:
-    orders = store.all_docs("order")
+def list_parent_requests(include_done: bool = False, ctx: Context | None = None) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    orders = [o for o in store.all_docs("order") if o.get("family_id") == fam["id"]]
     today = datetime.now().strftime("%Y-%m-%d")
     ask = [o for o in orders if o["status"] in ("awaiting_approval", "payment_failed", "not_found")]
     ready = [o for o in orders if o["status"] in ("ready_for_vooy", "authorized")]
@@ -186,7 +225,8 @@ def list_parent_requests(include_done: bool = False) -> dict[str, Any]:
     paid = [o for o in recent if o["status"] == "paid"]
     blocked = [o for o in recent if o["status"] == "blocked"]
     done = [o for o in recent if o["status"] in ("cancelled", "rejected")] if include_done else []
-    tasks = [t for c in store.all_docs("call") if (include_done or c["received_at"].startswith(today))
+    tasks = [t for c in store.all_docs("call") if c.get("family_id") == fam["id"]
+             and (include_done or c["received_at"].startswith(today))
              for t in (c.get("extraction") or {}).get("other_tasks", [])]
     lines = []
     for o in ask:
@@ -221,10 +261,13 @@ def list_parent_requests(include_done: bool = False) -> dict[str, Any]:
     ),
     annotations=WRITE,
 )
-def setup_auto_check() -> dict[str, Any]:
-    st = notify.poll_status()
+def setup_auto_check(ctx: Context) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    st = notify.poll_status(fam["id"])
     store.log("push_to_child", "auto-check", "⏱️ vooy에 5분 자동 확인(반복 작업) 설정을 요청했어요.")
-    if _auto_check_on():
+    if _auto_check_on(fam["id"]):
         return {"ok": True, "already_on": True, "last_polled_at": st.get("last_polled_at"),
                 "message": "이미 5분마다 확인하고 있어요."}
     return {"ok": True, "already_on": False, "auto_check": AUTO_CHECK,
@@ -248,9 +291,13 @@ POLL_INTERVAL_SEC = 300
     annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False,
                                 open_world_hint=False),
 )
-def get_new_parent_requests() -> dict[str, Any]:
-    new = notify.take_pending("cron")  # 웹훅으로 이미 간 정리본은 제외, 가져간 건 전달됨 표시
+def get_new_parent_requests(ctx: Context) -> dict[str, Any]:
+    fam = _account(ctx)
     base = {"polled_at": datetime.now().isoformat(timespec="seconds"), "poll_interval_sec": POLL_INTERVAL_SEC}
+    if fam is None:  # 공용 주소로 폴링하면 조용히 (사용자에게 보낼 것 없음)
+        return base | {"has_new": False, "count": 0, "notify_user": False, "message": "", "new": [],
+                       "need_personal_url": True, "warning": SHARED_MSG}
+    new = notify.take_pending("cron", fam["id"])  # 웹훅으로 이미 간 정리본은 제외, 가져간 건 전달됨 표시
     if not new:
         return base | {"has_new": False, "count": 0, "notify_user": False, "message": "", "new": []}
     return base | {
@@ -262,8 +309,8 @@ def get_new_parent_requests() -> dict[str, Any]:
     }
 
 
-def _result(fn, ref: str, statuses: tuple[str, ...], *args) -> dict[str, Any]:
-    o = _find_order(ref, statuses)
+def _result(fn, ref: str, statuses: tuple[str, ...], fid: str, *args) -> dict[str, Any]:
+    o = _find_order(ref, statuses, fid)
     if o is None:
         return {"ok": False, "message": f"‘{ref}’에 해당하는 주문을 찾지 못했어요. list_parent_requests로 확인해 주세요."}
     try:
@@ -272,8 +319,8 @@ def _result(fn, ref: str, statuses: tuple[str, ...], *args) -> dict[str, Any]:
         return {"ok": False, "order": _brief(o), "message": f"처리할 수 없어요: {e} ({o.get('decision_reason', '')})"}
 
 
-def _vooy_pays() -> bool:
-    return policy.get().get("payment_executor") == "vooy"
+def _vooy_pays(fid: str) -> bool:
+    return policy.get(fid).get("payment_executor") == "vooy"
 
 
 @server.tool(
@@ -287,15 +334,19 @@ def _vooy_pays() -> bool:
     ),
     annotations=PAY,
 )
-def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
+def approve_order(order_id: str, product_id: str = "", ctx: Context | None = None) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    fid = fam["id"]
     allowed = ("awaiting_approval", "payment_failed", "ready_for_vooy", "authorized")
     if product_id:
-        swapped = _result(pipeline.swap, order_id, allowed, product_id)
+        swapped = _result(pipeline.swap, order_id, allowed, fid, product_id)
         if not swapped["ok"]:
             return swapped
         order_id = swapped["order"]["order_id"]
-    if _vooy_pays():
-        r = _result(pipeline.authorize, order_id, allowed)
+    if _vooy_pays(fid):
+        r = _result(pipeline.authorize, order_id, allowed, fid)
         if r["ok"]:
             o = store.get("order", r["order"]["order_id"])
             r["purchase"] = {
@@ -304,7 +355,7 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
                 "quantity": o["quantity"], "max_amount": o["total"], "ship_to": o.get("ship_to", ""),
                 "recipient": o["caller"],
             }
-            pol = policy.get()
+            pol = policy.get(fid)
             card = pol["family_payment_method"]
             r["checkout"] = {
                 "merchant": pol["test_merchant"], "tool": "checkout_order",
@@ -342,7 +393,7 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
                 r["message"] += (f" 단, {o['caller']} 배송지가 등록돼 있지 않아요. 주문 전에 사용자에게 배송지를 물어 "
                                  "setup_parent(address=...)로 저장한 뒤 그 주소로 주문하세요.")
         return r
-    r = _result(pipeline.approve, order_id, allowed)
+    r = _result(pipeline.approve, order_id, allowed, fid)
     if r["ok"]:
         o = store.get("order", r["order"]["order_id"])
         if o["status"] == "paid":
@@ -362,8 +413,11 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
     ),
     annotations=PAY,
 )
-def checkout_order(order_id: str, payment_token: str) -> dict[str, Any]:
-    o = _find_order(order_id, ("authorized",))
+def checkout_order(order_id: str, payment_token: str, ctx: Context | None = None) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    o = _find_order(order_id, ("authorized",), fam["id"])
     if o is None:
         return {"ok": False, "message": f"‘{order_id}’에 해당하는 승인된 주문이 없어요. 먼저 approve_order로 승인을 받아 주세요."}
     try:
@@ -390,8 +444,11 @@ def checkout_order(order_id: str, payment_token: str) -> dict[str, Any]:
 )
 def report_purchase(order_id: str, success: bool = True, merchant: str = "", paid_amount: int = 0,
                     order_number: str = "", note: str = "", message_to_mom: str = "",
-                    product_name: str = "", product_url: str = "") -> dict[str, Any]:
-    o = _find_order(order_id, ("authorized",))
+                    product_name: str = "", product_url: str = "", ctx: Context | None = None) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    o = _find_order(order_id, ("authorized",), fam["id"])
     if o is None:
         return {"ok": False, "message": f"‘{order_id}’에 해당하는 승인된 주문이 없어요. 먼저 approve_order로 승인을 받아 주세요."}
     try:
@@ -411,8 +468,11 @@ def report_purchase(order_id: str, success: bool = True, merchant: str = "", pai
     description="주문하지 않기로 합니다. 예: '그건 사지 마', '전기요는 빼줘', '다음에 할게', '그건 내가 직접 살게'.",
     annotations=WRITE,
 )
-def reject_order(order_id: str) -> dict[str, Any]:
-    r = _result(pipeline.reject, order_id, ("awaiting_approval", "not_found", "payment_failed", "blocked"))
+def reject_order(order_id: str, ctx: Context | None = None) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    r = _result(pipeline.reject, order_id, ("awaiting_approval", "not_found", "payment_failed", "blocked"), fam["id"])
     if r["ok"]:
         r["message"] = f"‘{r['order']['item']}’은(는) 주문하지 않을게요."
     return r
@@ -427,8 +487,11 @@ def reject_order(order_id: str) -> dict[str, Any]:
     ),
     annotations=PAY,
 )
-def cancel_order(order_id: str) -> dict[str, Any]:
-    r = _result(pipeline.cancel, order_id, ("paid",))
+def cancel_order(order_id: str, ctx: Context | None = None) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    r = _result(pipeline.cancel, order_id, ("paid",), fam["id"])
     if r["ok"]:
         o = store.get("order", r["order"]["order_id"])
         r["message"] = f"{o['product']['name']} 주문을 취소하고 {won(o['refund']['amount'])} 환불했어요. {o['caller']}께 안내 문자를 보냈어요."
@@ -449,7 +512,11 @@ def update_delegation(
     monthly_budget: int | None = None,
     max_per_order: int | None = None,
     auto_approve_new_items: bool | None = None,
+    ctx: Context | None = None,
 ) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
     changes = {k: v for k, v in {
         "auto_approve_limit": auto_approve_limit, "monthly_budget": monthly_budget,
         "max_per_order": max_per_order, "auto_approve_new_items": auto_approve_new_items,
@@ -465,9 +532,9 @@ def update_delegation(
         if k in changes and int(changes[k]) > 5_000_000:
             return {"ok": False, "message": "금액은 500만원 이하로 알려 주세요."}
     if changes:
-        policy.update(changes)
+        policy.update(changes, fam["id"])
         store.log("push_to_child", "policy", "맡기는 범위를 바꿨어요: " + ", ".join(f"{k}={v}" for k, v in changes.items()))
-    return {"ok": True, "delegation": _policy_brief(),
+    return {"ok": True, "delegation": _policy_brief(fam["id"]),
             "message": "맡기는 범위를 바꿨어요." if changes else "바꿀 값을 알려 주세요."}
 
 
@@ -478,11 +545,30 @@ if not os.environ.get("OBA_MCP_TOKEN"):
     print("[mcp] OBA_MCP_TOKEN이 없어 임시 경로를 만들었습니다 (재시작하면 바뀜).", flush=True)
 MCP_PATH = f"/mcp/{MCP_TOKEN}"
 
-# 추측할 수 없는 경로가 접근 제어 역할을 한다. 외부(ngrok 등) Host로 들어오므로 host는 0.0.0.0으로 둔다.
-http_app = server.streamable_http_app(streamable_http_path=MCP_PATH, stateless_http=True, json_response=True,
+# 경로의 토큰이 계정을 가린다: 공용(가입용) 토큰 또는 계정별 개인 토큰만 통과.
+# 외부(ngrok 등) Host로 들어오므로 host는 0.0.0.0으로 둔다.
+http_app = server.streamable_http_app(streamable_http_path="/mcp/{token}", stateless_http=True, json_response=True,
                                       host="0.0.0.0")
 
 
+def _gate(inner):
+    from starlette.responses import PlainTextResponse
+
+    async def app(scope, receive, send):
+        token = (scope.get("path_params") or {}).get("token") or scope.get("path", "").rstrip("/").rsplit("/", 1)[-1]
+        if token != MCP_TOKEN and family.by_mcp_token(token) is None:
+            await PlainTextResponse("not found", status_code=404)(scope, receive, send)
+            return
+        await inner(scope, receive, send)
+    return app
+
+
+for _r in http_app.routes:
+    if getattr(_r, "path", "") == "/mcp/{token}":
+        _r.app = _gate(_r.app)
+
+
 def public_url() -> str:
+    """가입용 공용 주소 (계정별 개인 주소는 family.links)."""
     base = os.environ.get("OBA_PUBLIC_URL", "").rstrip("/")
     return f"{base}{MCP_PATH}" if base else MCP_PATH
