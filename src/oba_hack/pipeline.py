@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 
 from . import catalog, extract, payment, policy, store
-from .config import data_dir
+from .config import data_dir, josa
 
 TEXT_EXT = {".txt", ".md", ".text", ".csv", ".json"}
 AUDIO_EXT = {".m4a", ".mp3", ".wav", ".aac", ".caf", ".amr", ".mp4", ".ogg", ".webm"}
@@ -73,7 +73,7 @@ def register_call(call_id: str, files: list[dict], *, caller: str, source: str, 
         "files": files, "transcript": transcript, "status": "received", "order_ids": [],
     }
     store.put("call", call_id, call)
-    store.log("step", call_id, f"{caller}와(과)의 통화 기록 수신 ({source})")
+    store.log("step", call_id, f"{josa(caller, '과', '와')}의 통화 기록 수신 ({source})")
     return call
 
 
@@ -130,7 +130,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
                      decision="ask", decision_reason="카탈로그에서 맞는 상품을 못 찾았어요.")
         _tl(order, f"‘{req.get('item')}’ 상품을 찾지 못함")
         store.put("order", oid, order)
-        store.log("push_to_child", oid, f"엄마가 ‘{req.get('item')}’을(를) 부탁하셨는데 맞는 상품을 못 찾았어요.")
+        store.log("push_to_child", oid, f"엄마가 {josa(req.get('item') or '물건', '을', '를')} 부탁하셨는데 맞는 상품을 못 찾았어요.")
         return order
 
     pick, alts = candidates[0], candidates[1:4]
@@ -192,7 +192,7 @@ def _report_to_mom(call: dict, orders: list[dict]) -> None:
         names = ", ".join(f"{o['product']['name']}" for o in paid)
         parts.append(f"엄마, 말씀하신 {names} 주문했어요. {paid[0]['product']['delivery']} 예정이에요.")
     if pending:
-        parts.append(f"{', '.join(o['request'].get('item', '') for o in pending)}은(는) 제가 확인하고 주문할게요.")
+        parts.append(f"{josa(', '.join(o['request'].get('item', '') for o in pending), '은', '는')} 제가 확인하고 주문할게요.")
     store.log("sms_to_mom", call["id"], " ".join(parts))
 
 

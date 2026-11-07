@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from . import store
+from .config import josa
 
 DEFAULT = {
     "trusted_callers": ["엄마"],
@@ -53,7 +54,7 @@ def spent_this_month() -> int:
 def decide(*, caller: str, product: dict, total: int, previously_bought: bool, scam_signals: list[str]) -> tuple[str, str]:
     p = get()
     if product["category"] in p["blocked_categories"]:
-        return "block", f"'{product['category']}'은(는) 대신 결제하지 않는 품목이에요 (보이스피싱 단골 수법)."
+        return "block", f"{josa(product['category'], '은', '는')} 대신 결제하지 않는 품목이에요 (보이스피싱 단골 수법)."
     if scam_signals:
         return "block", "통화에 사칭 의심 표현이 있어요: " + ", ".join(scam_signals)
     if caller not in p["trusted_callers"]:

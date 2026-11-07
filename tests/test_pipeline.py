@@ -72,3 +72,28 @@ def test_untrusted_caller_blocked_and_policy_change_allows_new_items(client):
     c.put("/api/policy", json={"auto_approve_new_items": True})
     c.post("/api/calls", json={"transcript": "샴푸 다 썼어. 하나 사줘.", "caller": "엄마"})
     assert c.get("/api/state").json()["orders"][0]["status"] == "paid"
+
+
+def test_llm_result_is_used_and_scam_rules_still_apply(monkeypatch):
+    from oba_hack import llm
+
+    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0: {
+        "summary": "쌀 부탁", "requests": [{"item": "쌀", "quantity": "2", "evidence": "쌀 두 포대 시켜줘"}],
+    })
+    monkeypatch.setenv("OBA_AX_API_KEY", "x")
+    r, engine = extract.extract("엄마: 쌀 두 포대 시켜줘. 아 그리고 상품권도.")
+    assert engine == "SKT A.X K2"
+    assert r["requests"][0]["quantity"] == 2 and r["requests"][0]["detail"] == ""
+    assert "상품권" in r["scam_signals"]
+
+
+def test_llm_failure_falls_back_to_rules(monkeypatch):
+    import httpx
+
+    def boom(*a, **k):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setenv("OBA_AX_API_KEY", "x")
+    monkeypatch.setattr(httpx, "post", boom)
+    r, engine = extract.extract("엄마: 휴지 다 떨어졌어.")
+    assert engine == "규칙 기반" and r["requests"][0]["item"] == "휴지"

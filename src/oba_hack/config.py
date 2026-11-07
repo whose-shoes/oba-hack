@@ -19,3 +19,11 @@ def max_upload_bytes() -> int:
 def default_caller() -> str:
     """에이닷 공유본에는 발신자 정보가 없을 수 있다. 그때 쓸 기본 발신자."""
     return os.environ.get("OBA_DEFAULT_CALLER", "엄마")
+
+
+def josa(word: str, with_batchim: str, without: str) -> str:
+    """받침 여부에 맞는 조사를 붙인다. josa('쌀', '은', '는') → '쌀은'"""
+    last = word[-1:] if word else ""
+    if "가" <= last <= "힣":
+        return word + (with_batchim if (ord(last) - 0xAC00) % 28 else without)
+    return f"{word}{with_batchim}({without})"
