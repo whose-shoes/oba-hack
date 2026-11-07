@@ -194,19 +194,6 @@ def signup(body: SignupIn) -> dict:
     return family.public(fam)
 
 
-class ConsentIn(BaseModel):
-    granted: bool = True
-
-
-@app.post("/api/families/{fid}/parents/{pid}/consent")
-def parent_consent(fid: str, pid: str, body: ConsentIn) -> dict:
-    """엄마의 '예' 답장 (데모에서는 버튼으로 시뮬레이션)."""
-    try:
-        return family.public(family.consent(fid, pid, body.granted))
-    except KeyError:
-        raise HTTPException(404)
-
-
 @app.delete("/api/families/{fid}")
 def leave(fid: str) -> dict:
     family.delete(fid)

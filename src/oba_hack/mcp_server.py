@@ -100,7 +100,7 @@ def _brief(o: dict) -> dict:
     title="엄마 연결 상태 확인",
     description=(
         "엄마(부모님) 연결 상태와 등록된 정보, 자동결제 범위를 확인합니다. 처음 연결했을 때 가장 먼저 부르세요. "
-        "예: '설정 확인해줘', '엄마 정보 뭐 등록돼 있어?', '연동 됐어?', '엄마 동의하셨어?'"
+        "예: '설정 확인해줘', '엄마 정보 뭐 등록돼 있어?', '연동 됐어?'"
     ),
     annotations=READ,
 )
@@ -113,10 +113,8 @@ def get_family_status() -> dict[str, Any]:
                        "배송지, 엄마가 늘 쓰시는 물건, 건강 정보도 말로 알려 주시면 함께 기억해요.",
         }
     p = fam["parents"][0]
-    waiting = p["consent"] != "granted"
-    msg = (f"{p['label']}께 동의 요청 문자를 보냈고 답장을 기다리는 중이에요. 동의하시면 통화가 끝날 때마다 자동으로 정리해 드려요."
-           if waiting else f"{josa(p['label'], '과', '와')} 연결돼 있어요. 통화가 끝나면 부탁을 정리해서 먼저 알려 드릴게요.")
-    return _with_auto_check({"set_up": True, "consent_pending": waiting, "message": msg,
+    msg = f"{josa(p['label'], '과', '와')} 연결돼 있어요. 통화가 끝나면 부탁을 정리해서 먼저 알려 드릴게요."
+    return _with_auto_check({"set_up": True, "message": msg,
                              "auto_check_on": _auto_check_on(), "family": family.summary(fam),
                              "delegation": _policy_brief()})
 
@@ -128,7 +126,7 @@ def get_family_status() -> dict[str, Any]:
         "엄마(부모님) 기본 정보를 대화로 등록하거나 고칩니다. 사용자가 말한 내용에서 값을 뽑아 넣으세요. "
         "예: '우리 엄마 번호는 010-2345-6789고 내 번호는 010-1234-5678이야', '엄마는 서울 마포구 월드컵로 1에 사셔', "
         "'엄마 무릎이 안 좋으셔', '휴지는 늘 깨끗한나라 30롤 쓰셔', '엄마 성함은 김순자', '엄마 생신은 3월 5일'. "
-        "처음 등록할 때는 parent_phone(엄마 번호)과 child_phone(사용자 번호)이 꼭 필요하고, 등록하면 엄마께 동의 요청 문자가 갑니다. "
+        "처음 등록할 때는 parent_phone(엄마 번호)과 child_phone(사용자 번호)이 꼭 필요하고, 등록하면 바로 연결됩니다. "
         "그 뒤로는 알려 준 항목만 고치거나 note로 덧붙입니다. 선호·건강·알레르기·자주 사는 물건은 note에 한 문장으로 넣으세요."
     ),
     annotations=WRITE,
@@ -156,8 +154,7 @@ def setup_parent(
             }])
             label = fam["parents"][0]["label"]
             return _with_auto_check({"ok": True, "created": True, "family": family.summary(fam),
-                    "message": f"{label} 정보를 등록하고 {label}께 동의 요청 문자를 보냈어요. "
-                               f"{label}께서 ‘예’라고 답장하시면 그때부터 통화가 끝날 때마다 부탁을 정리해 드려요."})
+                    "message": f"{label} 정보를 등록하고 바로 연결했어요. 이제 {josa(label, '과', '와')} 통화가 끝날 때마다 부탁을 정리해 드려요."})
         fam, changed = family.update(
             fam["id"], child_name=child_name, child_phone=child_phone, label=parent_label, name=parent_name,
             phone=parent_phone, address=address, birthday=birthday, note=note,

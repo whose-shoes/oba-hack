@@ -6,14 +6,11 @@ CHILD, MOM, STRANGER = "010-1234-5678", "010-2345-6789", "010-9876-5432"
 TALK = "엄마: 휴지가 다 떨어졌어. 하나 시켜줘.\n나: 응 알았어."
 
 
-def signup(c, consent=True):
-    fam = c.post("/api/families", json={
+def signup(c):
+    return c.post("/api/families", json={
         "child_name": "지누", "child_phone": CHILD,
         "parents": [{"label": "엄마", "phone": MOM}],
     }).json()
-    if consent:
-        c.post(f"/api/families/{fam['id']}/parents/{fam['parents'][0]['id']}/consent", json={"granted": True})
-    return fam
 
 
 def call_ended(c, frm, to, text=TALK, call_id=None):
@@ -28,13 +25,14 @@ def test_normalize_and_mask():
     assert family.mask_phone("01023456789") == "010-****-6789"
 
 
-def test_signup_masks_numbers_and_asks_mom_consent(client):
+def test_signup_masks_numbers_and_connects_immediately(client):
     c, _ = client
-    fam = signup(c, consent=False)
+    fam = signup(c)
     assert fam["parents"][0]["phone"] == "010-****-6789"
-    assert fam["parents"][0]["consent"] == "pending"
-    sms = [e["text"] for e in c.get("/api/state").json()["events"] if e["kind"] == "sms_to_mom"]
-    assert any("동의하시면" in t for t in sms)
+    st = c.get("/api/state").json()
+    assert not [e for e in st["events"] if e["kind"] == "sms_to_mom"]          # 동의 요청 문자 없음
+    assert any("연결했어요" in e["text"] for e in st["events"])
+    assert "엄마" in st["policy"]["trusted_callers"]
     assert c.post("/api/families", json={"child_name": "x", "child_phone": "12", "parents": [{"phone": MOM}]}).status_code == 400
 
 
@@ -68,12 +66,6 @@ def test_other_calls_are_dropped_without_storing_anything(client):
     assert not (tmp / "calls").exists() or not any((tmp / "calls").iterdir())
     dropped = [e for e in st["events"] if e["kind"] == "filter"]
     assert len(dropped) == 1 and "9876" not in dropped[0]["text"] and "상품권" not in dropped[0]["text"]
-
-
-def test_no_processing_before_mom_consents(client):
-    c, _ = client
-    signup(c, consent=False)
-    assert not call_ended(c, MOM, CHILD).json()["accepted"]
 
 
 def test_duplicate_webhook_is_ignored(client):

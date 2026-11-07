@@ -3,7 +3,7 @@
 - 에이닷 공유(1탭): 자식이 엄마 통화를 골라 공유 → 단축어가 업로드
 - 문자 자동화(0탭): 엄마에게 문자가 오면 단축어 자동화가 업로드 (보낸 사람 포함)
 
-발신자 번호(caller_number)가 오면 등록·동의된 부모님인지 확인하고, 아니면 저장하지 않고 버린다.
+발신자 번호(caller_number)가 오면 등록된 부모님인지 확인하고, 아니면 저장하지 않고 버린다.
 받은 파일은 data/calls/<call_id>/ 아래에 원본 그대로 저장하고, 백그라운드에서 파이프라인을 돌린다.
 """
 
@@ -112,7 +112,7 @@ async def upload_call(request: Request, background: BackgroundTasks, auth: dict 
         match = family.match_sender(caller_number, fam)
         if match is None:
             # 번호도 내용도 남기지 않는다
-            store.log("filter", "upload", "🔒 등록·동의되지 않은 발신자의 기록 1건 → 저장하지 않고 폐기")
+            store.log("filter", "upload", "🔒 등록되지 않은 발신자의 기록 1건 → 저장하지 않고 폐기")
             return JSONResponse({"accepted": False, "reason": "not a registered parent"},
                                 status_code=status.HTTP_202_ACCEPTED)
         fam, parent = match

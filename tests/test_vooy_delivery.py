@@ -16,7 +16,6 @@ MOCK = "http://127.0.0.1:8765/mock/vooy/webhook"
 
 def setup_family(c):
     fam = family.register("지누", CHILD, [{"label": "엄마", "phone": MOM}])
-    family.consent(fam["id"], fam["parents"][0]["id"])
     return fam
 
 

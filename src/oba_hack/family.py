@@ -1,6 +1,6 @@
-"""가족 연동: 자식이 가입하고 부모님 번호를 등록·동의받는다.
+"""가족 연동: 자식이 가입하고 부모님 번호를 등록한다 (등록 즉시 연결).
 
-처리 대상은 '등록되고 동의한 부모님 번호'와의 통화(또는 문자)뿐이다.
+처리 대상은 '등록된 부모님 번호'와의 통화(또는 문자)뿐이다.
 그 밖의 통화는 내용·번호를 저장하지 않고 버린다.
 """
 
@@ -70,8 +70,7 @@ def register(child_name: str, child_phone: str, parents: list[dict]) -> dict:
             "address": (p.get("address") or "").strip(),
             "birthday": (p.get("birthday") or "").strip(),
             "notes": [n.strip() for n in (p.get("notes") or []) if n and n.strip()],
-            "consent": "pending",
-            "consent_requested_at": now(),
+            "consent": "granted",  # 동의 단계 없음: 등록하면 바로 연결 (필드는 호환용)
         })
     name = child_name.strip() or "자식"
     fam = {
@@ -83,17 +82,13 @@ def register(child_name: str, child_phone: str, parents: list[dict]) -> dict:
         "parents": ps,
     }
     store.put("family", fam["id"], fam)
+    pol = policy.get()
+    labels = [p["label"] for p in ps if p["label"] not in pol["trusted_callers"]]
+    if labels:
+        policy.update({"trusted_callers": pol["trusted_callers"] + labels})
     for p in ps:
-        _ask_consent(fam, p)
+        store.log("push_to_child", fam["id"], f"✅ {josa(p['label'], '과', '와')} 연결했어요({mask_phone(p['phone'])}). 이제 통화가 끝나면 알아서 정리해요.")
     return fam
-
-
-def _ask_consent(fam: dict, p: dict) -> None:
-    name = fam["child_name"]
-    store.log("sms_to_mom", fam["id"],
-              f"{p['label']}, {josa(name, '이', '가')} 통화 속 부탁을 대신 주문해 드리는 ‘don't call me, Mama’에 "
-              f"{p['label']} 번호를 등록했어요. 동의하시면 ‘예’라고 답장해 주세요.")
-    store.log("push_to_child", fam["id"], f"{p['label']}({mask_phone(p['phone'])})께 동의 요청 문자를 보냈어요.")
 
 
 def update(family_id: str, *, child_name: str | None = None, child_phone: str | None = None,
@@ -124,13 +119,11 @@ def update(family_id: str, *, child_name: str | None = None, child_phone: str | 
         if len(num) < 9:
             raise ValueError("부모님 번호를 확인해 주세요.")
         if num != p["phone"]:
-            p.update(phone=num, consent="pending", consent_requested_at=now())
-            changed.append("전화번호(동의 다시 요청)"); new_phone = True
+            p.update(phone=num)
+            changed.append("전화번호"); new_phone = True
     if note and note.strip():
         p.setdefault("notes", []).append(note.strip()); changed.append("메모")
     store.put("family", family_id, fam)
-    if new_phone:
-        _ask_consent(fam, p)
     return fam, changed
 
 
@@ -144,7 +137,6 @@ def summary(fam: dict | None) -> dict | None:
         "parents": [{
             "label": p["label"], "name": p.get("name", ""), "phone": mask_phone(p["phone"]),
             "address": p.get("address", ""), "birthday": p.get("birthday", ""), "notes": p.get("notes", []),
-            "consent": {"granted": "동의 완료", "pending": "동의 대기", "declined": "동의 안 함"}[p["consent"]],
         } for p in fam["parents"]],
     }
 
@@ -164,27 +156,6 @@ def notes_for(family_id: str | None) -> str:
     return "\n".join(lines)
 
 
-def consent(family_id: str, parent_id: str, granted: bool = True) -> dict:
-    fam = store.get("family", family_id)
-    if fam is None:
-        raise KeyError(family_id)
-    p = next((x for x in fam["parents"] if x["id"] == parent_id), None)
-    if p is None:
-        raise KeyError(parent_id)
-    p["consent"] = "granted" if granted else "declined"
-    p["consent_at"] = now()
-    store.put("family", family_id, fam)
-    if granted:
-        pol = policy.get()
-        if p["label"] not in pol["trusted_callers"]:
-            policy.update({"trusted_callers": pol["trusted_callers"] + [p["label"]]})
-        store.log("push_to_child", family_id,
-                  f"✅ {josa(p['label'], '이', '가')} 동의했어요. 이제 {josa(p['label'], '과', '와')} 통화가 끝나면 알아서 처리해요.")
-    else:
-        store.log("push_to_child", family_id, f"{josa(p['label'], '이', '가')} 동의하지 않았어요. 통화는 처리하지 않아요.")
-    return fam
-
-
 def delete(family_id: str) -> None:
     with store._lock:
         db = store._db()
@@ -193,25 +164,23 @@ def delete(family_id: str) -> None:
 
 
 def match_call(number_a: str, number_b: str) -> tuple[dict, dict] | None:
-    """통화 양쪽 번호 중 하나가 자식, 다른 하나가 동의한 부모님이면 (가족, 부모님). 방향은 상관없다."""
+    """통화 양쪽 번호 중 하나가 자식, 다른 하나가 등록된 부모님이면 (가족, 부모님). 방향은 상관없다."""
     a, b = normalize_phone(number_a), normalize_phone(number_b)
     for fam in families():
         for child, other in ((a, b), (b, a)):
             if child != fam["child_phone"]:
                 continue
             for p in fam["parents"]:
-                if p["phone"] == other and p["consent"] == "granted":
+                if p["phone"] == other:
                     return fam, p
     return None
 
 
 def match_sender(raw: str, fam: dict | None = None) -> tuple[dict, dict] | None:
-    """단축어가 보낸 발신자(번호 또는 연락처 이름)가 동의한 부모님인지."""
+    """단축어가 보낸 발신자(번호 또는 연락처 이름)가 등록된 부모님인지."""
     num = normalize_phone(raw)
     for f in [fam] if fam else families():
         for p in f["parents"]:
-            if p["consent"] != "granted":
-                continue
             if (num and p["phone"] == num) or (not num and raw.strip() == p["label"]):
                 return f, p
     return None

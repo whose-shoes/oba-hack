@@ -289,9 +289,9 @@ function renderOnboard(f, mcpUrl) {
   const el = $("#onboard"); el.classList.toggle("done", false);
   const mom = f?.parents?.[0];
   $("#who").options[0].textContent = mom ? `${mom.label} 번호 (${mom.phone})` : "엄마 번호";
-  const ready = mom?.consent === "granted";
+  const ready = !!mom;
   $("#send").disabled = !ready;
-  $("#simmsg").textContent = ready ? "" : "가입하고 엄마 동의를 받으면 시뮬레이션할 수 있어요.";
+  $("#simmsg").textContent = ready ? "" : "가입하고 엄마 번호를 등록하면 시뮬레이션할 수 있어요.";
   if (!f) {
     el.innerHTML = `<h2>시작하기: 엄마 번호만 등록하면 끝</h2>
       <div class="sub">엄마와의 통화가 끝나면 그 통화만 처리해요. 다른 통화는 저장하지 않아요.</div>
@@ -303,10 +303,6 @@ function renderOnboard(f, mcpUrl) {
         <label class="wide">배송지<input id="s_addr" value="서울시 마포구 월드컵로 1 (엄마 집)"></label>
       </div>
       <div class="row between"><span class="small" id="s_err" style="color:var(--bad)"></span><button class="primary" id="signup">가입하고 엄마 연동하기</button></div>`;
-  } else if (!ready) {
-    el.innerHTML = `<h2>${esc(mom.label)} 동의를 기다리는 중</h2>
-      <div>${esc(mom.label)}(${esc(mom.phone)})께 동의 요청 문자를 보냈어요. ‘예’라고 답장하시면 연동이 끝나요.</div>
-      <div class="row" style="margin-top:10px"><button class="primary" data-consent="${f.id}|${mom.id}">${esc(mom.label)}가 ‘예’라고 답장 (시뮬레이션)</button><button data-leave="${f.id}">처음부터</button></div>`;
   } else {
     el.classList.add("done");
     el.innerHTML = `<div class="row between"><span>✅ <b>${esc(mom.label)}</b>(${esc(mom.phone)})와 연동됨 · 통화가 끝나면 알아서 처리해요</span></div>
@@ -428,7 +424,6 @@ document.addEventListener("click", async e => {
         $("#s_err").textContent = typeof d === "string" ? d : "가입 정보를 확인해 주세요."; return;
       }
     }
-    else if (t.dataset.consent) { const [f, p] = t.dataset.consent.split("|"); await api(`/api/families/${f}/parents/${p}/consent`, {method:"POST", body:JSON.stringify({granted:true})}); }
     else if (t.dataset.leave) { await api(`/api/families/${t.dataset.leave}`, {method:"DELETE"}); }
     else return;
   } catch (err) { console.log(err); }

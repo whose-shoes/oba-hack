@@ -1,7 +1,7 @@
 """통신사(SKT 에이닷) 연동 웹훅 — 0탭 경로.
 
 SKT 망에서 통화가 끝나면 에이닷이 이 엔드포인트를 호출한다고 가정한다.
-등록·동의된 부모님 번호와의 통화만 받아서 처리하고, 나머지는 아무것도 저장하지 않는다.
+등록된 부모님 번호와의 통화만 받아서 처리하고, 나머지는 아무것도 저장하지 않는다.
 (해커톤에서는 대시보드의 통화 시뮬레이터가 같은 함수를 호출한다.)
 """
 
@@ -46,7 +46,7 @@ def receive(ev: CallEnded, *, source: str = "SKT 망 연동") -> tuple[dict, str
     match = family.match_call(ev.from_number, ev.to_number)
     if match is None:
         # 번호도 내용도 남기지 않는다
-        store.log("filter", "telco", "🔒 등록·동의되지 않은 번호와의 통화 1건 → 저장하지 않고 폐기")
+        store.log("filter", "telco", "🔒 등록되지 않은 번호와의 통화 1건 → 저장하지 않고 폐기")
         return {"accepted": False, "reason": "not a registered family call"}, None
 
     fam, parent = match

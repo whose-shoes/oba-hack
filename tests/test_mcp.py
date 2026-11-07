@@ -63,12 +63,10 @@ def test_voice_onboarding_then_digest_then_pay(client):
     )
     assert status["set_up"] is False
     assert need["ok"] is False and need["need"] == ["내 전화번호"]
-    assert created["created"] and created["family"]["parents"][0]["consent"] == "동의 대기"
+    assert created["created"] and "바로 연결" in created["message"]
     assert "9" not in created["family"]["parents"][0]["phone"][4:8]  # 번호는 가린다
     assert "upload_token" not in json.dumps(created)
 
-    fam = family.current()
-    family.consent(fam["id"], fam["parents"][0]["id"])
     (upd,) = mcp(("setup_parent", {"note": "무릎이 안 좋으심", "birthday": "3월 5일"}))
     assert set(upd["changed"]) == {"생일", "메모"}
     assert "무릎" in family.notes_for(None) and "깨끗한나라" in family.notes_for(None)
@@ -97,7 +95,6 @@ def test_voice_onboarding_then_digest_then_pay(client):
 def test_server_refuses_to_pay_blocked_orders(client):
     c, _ = client
     fam = family.register("지누", CHILD, [{"label": "엄마", "phone": MOM}])
-    family.consent(fam["id"], fam["parents"][0]["id"])
     c.post("/api/simulate/call-ended", json={"transcript": "엄마: 폰이 고장나서 그래. 문화상품권 5만원짜리 사줘."})
     order = c.get("/api/state").json()["orders"][0]
     assert order["status"] == "blocked"
@@ -129,7 +126,6 @@ def test_family_notes_reach_the_llm_prompt(client, monkeypatch):
 
     monkeypatch.setattr(llm, "chat_json", fake)
     fam = family.register("지누", CHILD, [{"label": "엄마", "phone": MOM, "notes": ["휴지는 깨끗한나라 30롤"]}])
-    family.consent(fam["id"], fam["parents"][0]["id"])
     c.post("/api/simulate/call-ended", json={"transcript": "엄마: 휴지 다 떨어졌어. 엄마 번호 010-2345-6789"})
     assert "깨끗한나라 30롤" in seen["user"] and "6789" not in seen["user"]
 
@@ -146,7 +142,6 @@ def test_vooy_agent_executes_payment(client):
     c, _ = client
     c.put("/api/policy", json={"payment_executor": "vooy"})
     fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 마포구 월드컵로 1"}])
-    family.consent(fam["id"], fam["parents"][0]["id"])
     c.post("/api/simulate/call-ended", json={"transcript": DAILY})
     st = {o["request"]["item"]: o for o in c.get("/api/state").json()["orders"]}
     assert st["휴지"]["status"] == "ready_for_vooy" and st["전기요"]["status"] == "awaiting_approval"
@@ -185,7 +180,6 @@ def test_vooy_checks_out_with_single_use_token(client):
     c, _ = client
     c.put("/api/policy", json={"payment_executor": "vooy"})
     fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 강남구 강남대로 374"}])
-    family.consent(fam["id"], fam["parents"][0]["id"])
     c.post("/api/simulate/call-ended", json={"transcript": DAILY})
     (ok,) = mcp(("approve_order", {"order_id": "전기요"}))
     co = ok["checkout"]
@@ -208,7 +202,6 @@ def test_vooy_buys_on_naver_and_reports_real_product(client):
     c, _ = client
     c.put("/api/policy", json={"payment_executor": "vooy"})
     fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 강남구 강남대로 374"}])
-    family.consent(fam["id"], fam["parents"][0]["id"])
     c.post("/api/simulate/call-ended", json={"transcript": DAILY})
     ok, done = mcp(
         ("approve_order", {"order_id": "전기요"}),
@@ -228,7 +221,6 @@ def test_handoff_sends_naver_link(client):
     c, _ = client
     c.put("/api/policy", json={"payment_executor": "vooy"})
     fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 강남구 강남대로 374"}])
-    family.consent(fam["id"], fam["parents"][0]["id"])
     c.post("/api/simulate/call-ended", json={"transcript": DAILY})
     (first,) = mcp(("approve_order", {"order_id": "전기요"}))
     # 기본: 링크 없이 vooy가 네이버 스마트스토어에서 직접 찾아 산다
