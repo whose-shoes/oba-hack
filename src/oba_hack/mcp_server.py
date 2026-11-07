@@ -193,8 +193,7 @@ def list_parent_requests(include_done: bool = False) -> dict[str, Any]:
                                 open_world_hint=False),
 )
 def get_new_parent_requests() -> dict[str, Any]:
-    new = notify.pending()
-    notify.mark_delivered([d["id"] for d in new], via="poll")
+    new = notify.take_pending("cron")  # 웹훅으로 이미 간 정리본은 제외, 가져간 건 전달됨 표시
     if not new:
         return {"new": [], "message": "새로 정리된 엄마 부탁이 없어요."}
     return {"new": [{"text": d["text"], "items": d["items"], "created_at": d["created_at"]} for d in new],

@@ -92,6 +92,25 @@ code{font-size:12px;background:var(--chip);padding:2px 6px;border-radius:6px;ove
       </div>
       <div class="sub small" id="simmsg" style="margin-top:6px"></div>
     </section>
+    <section>
+      <h2>vooy로 먼저 보내기 <span class="small">(웹훅 · 크론 함께 켜도 중복 없음)</span></h2>
+      <div class="sub small" id="vooystats"></div>
+      <div class="form">
+        <label class="wide">웹훅 주소 (vooy가 준 주소)<input id="v_url" placeholder="https://…"></label>
+        <label>토큰<input id="v_token" placeholder="(선택)"></label>
+        <label>vooy 사용자 ID<input id="v_user" placeholder="(선택)"></label>
+        <label class="wide">서명 비밀 (HMAC-SHA256)<input id="v_secret" placeholder="(선택)"></label>
+      </div>
+      <div class="row between">
+        <button id="v_mock">모의 vooy로 연결</button>
+        <div class="row"><button id="v_test">테스트 발송</button><button class="primary" id="v_save">저장</button></div>
+      </div>
+      <div class="sub small" id="v_msg" style="margin-top:6px"></div>
+      <details style="margin-top:6px"><summary>크론으로 가져가기</summary>
+        <div class="sub small" style="margin-top:6px">vooy 반복 작업: “5분마다 <code>get_new_parent_requests</code>를 실행하고 새 정리본이 있으면 나에게 보내줘. 없으면 조용히 있어.”<br>
+        HTTP 크론이면 <code>GET /v1/vooy/digests</code> (헤더 <code>Authorization: Bearer 가족 업로드 토큰</code>), 보기만 하려면 <code>?mark=false</code> 후 <code>POST /v1/vooy/digests/ack</code>.</div>
+      </details>
+    </section>
     <section class="policy">
       <h2>맡기는 범위 (위임 정책)</h2>
       <label>믿을 수 있는 발신자 <input id="p_trusted" style="width:160px"></label>
@@ -111,7 +130,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const won = n => (n ?? 0).toLocaleString("ko-KR") + "원";
 const ST = {paid:"결제 완료",awaiting_approval:"승인 대기",blocked:"차단",payment_failed:"결제 실패",cancelled:"취소·환불",rejected:"주문 안 함",not_found:"상품 못 찾음",received:"수신",extracted:"분석 중",processed:"처리 완료",needs_transcript:"전사 필요"};
 const time = s => s ? s.slice(11,16) : "";
-let policyLoaded = false, last = "", famKey = null, maxSeq = null, fam = null, toastTimer;
+let policyLoaded = false, vooyLoaded = false, last = "", famKey = null, maxSeq = null, fam = null, toastTimer;
 
 function toast(text) {
   const t = $("#toast"); t.textContent = text; t.classList.add("show");
@@ -199,6 +218,14 @@ function render(s) {
   $("#sms").innerHTML = ev.filter(e => e.kind === "sms_to_mom").map(e => `<div class="bubble mom">${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
   $("#push").innerHTML = ev.filter(e => e.kind !== "sms_to_mom").map(e => `<div class="bubble ${e.kind.startsWith("vooy") ? "vooy" : ""}"><span class="sub small">${new Date(e.ts*1000).toTimeString().slice(0,5)}</span> ${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
   for (const f of ["#sms","#push"]) $(f).scrollTop = 1e9;
+  const v = s.vooy, st = v.stats;
+  $("#vooystats").textContent = `웹훅 ${v.webhook_on ? "켜짐" : "꺼짐"} · 보낼 함 ${st.pending}건 · 웹훅으로 전달 ${st.webhook}건 · 크론이 가져감 ${st.cron}건` + (st.gave_up ? ` · 재시도 포기 ${st.gave_up}건` : "");
+  if (!vooyLoaded) {
+    vooyLoaded = true;
+    $("#v_url").value = v.push_url; $("#v_user").value = v.user_id;
+    $("#v_token").placeholder = v.push_token_set ? "설정됨 (바꿀 때만 입력)" : "(선택)";
+    $("#v_secret").placeholder = v.signing_secret_set ? "설정됨 (바꿀 때만 입력)" : "(선택)";
+  }
   if (!policyLoaded) {
     const p = s.policy; policyLoaded = true;
     $("#p_trusted").value = p.trusted_callers.join(", "); $("#p_auto").value = p.auto_approve_limit;
@@ -216,7 +243,7 @@ async function refresh() {
     if (fk !== famKey) { famKey = fk; fam = s.family; renderOnboard(s.family, s.mcp_url); }
     const top = s.events.length ? s.events[0].seq : 0;
     if (maxSeq !== null) {
-      const fresh = s.events.filter(e => e.seq > maxSeq && ["push_to_child","filter","vooy_outbox","vooy_sent"].includes(e.kind));
+      const fresh = s.events.filter(e => e.seq > maxSeq && (e.kind.startsWith("vooy") || ["push_to_child","filter"].includes(e.kind)));
       const vooy = fresh.find(e => e.kind.startsWith("vooy"));
       const pick = vooy || fresh[0];
       if (pick) toast((pick.text.length > 110 ? pick.text.slice(0, 110) + "…" : pick.text) + (fresh.length > 1 ? `  외 ${fresh.length - 1}건` : ""));
@@ -257,6 +284,24 @@ $("#send").onclick = async () => {
     if (r.accepted) $("#transcript").value = "";
   } catch (err) { $("#simmsg").textContent = "실패: " + err.message; }
   $("#send").disabled = false; last = ""; setTimeout(refresh, 300);
+};
+async function saveVooy() {
+  const body = {push_url: $("#v_url").value.trim(), user_id: $("#v_user").value.trim()};
+  if ($("#v_token").value.trim()) body.push_token = $("#v_token").value.trim();
+  if ($("#v_secret").value.trim()) body.signing_secret = $("#v_secret").value.trim();
+  try {
+    const r = await api("/api/vooy", {method:"PUT", body:JSON.stringify(body)});
+    $("#v_token").value = ""; $("#v_secret").value = ""; vooyLoaded = false;
+    $("#v_msg").textContent = r.webhook_on ? "저장했어요. 이제 통화가 끝나면 웹훅으로 바로 보내요." : "웹훅을 껐어요. 정리본은 보낼 함에 쌓이고 크론이 가져가요.";
+  } catch (err) { let d; try { d = JSON.parse(err.message).detail; } catch (_) {} $("#v_msg").textContent = typeof d === "string" ? d : "저장 실패"; }
+  last = ""; refresh();
+}
+$("#v_save").onclick = saveVooy;
+$("#v_mock").onclick = () => { $("#v_url").value = location.origin + "/mock/vooy/webhook"; saveVooy(); };
+$("#v_test").onclick = async () => {
+  const r = await api("/api/vooy/test", {method:"POST"});
+  $("#v_msg").textContent = r.ok ? `테스트 발송 성공 (${r.result})` : `테스트 발송 실패: ${r.result}`;
+  last = ""; refresh();
 };
 $("#reset").onclick = async () => { await api("/api/reset", {method:"POST"}); last = ""; refresh(); };
 const list = v => v.split(",").map(x => x.trim()).filter(Boolean);

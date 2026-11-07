@@ -77,31 +77,70 @@ https://<공개 주소>/mcp/<OBA_MCP_TOKEN>
 > 자녀: 아 전기요 취소해줘 → (cancel_order) 취소하고 59,000원 환불했어요. 엄마께 안내 문자를 보냈어요.
 > 자녀: 앞으로 5만원까지는 그냥 사줘 → (update_delegation) 자동결제 한도를 50,000원으로 바꿨어요.
 
-## 5. 정리본을 vooy로 먼저 보내는 방법 (둘 중 vooy가 지원하는 것)
+## 5. 정리본을 vooy로 먼저 보내는 방법 — 웹훅과 크론 둘 다 지원
 
-### A. 크론잡 (vooy 반복 작업)
+통화가 끝나면 서버가 정리본을 만듭니다. **웹훅과 크론을 함께 켜도 같은 정리본이 두 번 가지 않습니다**
+(전달됨 표시를 공유). 웹훅이 실패한 정리본은 재시도되고, 그 사이 크론이 먼저 가져갈 수도 있습니다.
 
-vooy에서 반복 작업을 만듭니다: **"5분마다 `get_new_parent_requests`를 실행하고, 새 정리본이 있으면 text를 그대로 나에게 보내고 결제할지 물어봐. 없으면 아무 말도 하지 마."**
-정리본은 한 번 가져가면 '전달됨'으로 표시되어 중복으로 오지 않습니다.
+| | 웹훅 (우리 → vooy) | 크론 (vooy → 우리) |
+|---|---|---|
+| 설정 | 대시보드 "vooy로 먼저 보내기" 또는 `.env` | vooy 반복 작업 또는 HTTP 크론 |
+| 시점 | 통화 처리 직후 즉시 | 크론 주기마다 |
+| 실패 시 | 백오프 재시도 15·30·60·120초 (최대 5회), 보낼 함에 남음 | 다음 주기에 다시 가져감 |
 
-### B. 웹훅 (vooy가 받는 주소를 제공하는 경우)
+### A. 웹훅
 
-`.env`에 vooy가 준 값을 넣고 서버를 재시작하면, 통화 처리가 끝나는 즉시 보냅니다.
+대시보드 **vooy로 먼저 보내기**에 vooy가 준 웹훅 주소·토큰·사용자 ID·서명 비밀을 넣고 저장합니다
+(`.env`의 `OBA_VOOY_PUSH_URL`·`OBA_VOOY_PUSH_TOKEN`·`OBA_VOOY_USER_ID`·`OBA_VOOY_SIGNING_SECRET`도 기본값으로 쓰입니다).
+켜는 순간 보낼 함에 쌓여 있던 정리본도 바로 나갑니다. **테스트 발송** 버튼으로 연결을 확인할 수 있습니다.
 
-```
-OBA_VOOY_PUSH_URL=<vooy 웹훅 주소>
-OBA_VOOY_PUSH_TOKEN=<vooy가 준 토큰>
-OBA_VOOY_USER_ID=<자녀의 vooy 사용자 ID>
-```
+```http
+POST <웹훅 주소>
+Content-Type: application/json
+Authorization: Bearer <토큰>                 # 토큰을 넣은 경우
+X-Oba-Event: digest.created                  # 테스트 발송은 test
+X-Oba-Delivery: 20261107-151932-ab12         # 정리본 ID — 같은 값이 다시 오면 중복이니 무시
+X-Oba-Timestamp: 1794031010
+X-Oba-Signature: sha256=<HMAC-SHA256(서명 비밀, "<timestamp>." + 본문)>   # 서명 비밀을 넣은 경우
 
-보내는 요청 (`Authorization: Bearer <OBA_VOOY_PUSH_TOKEN>`):
-
-```json
 {
-  "user_id": "<OBA_VOOY_USER_ID>",
+  "event": "digest.created",
+  "user_id": "<vooy 사용자 ID>",
   "text": "엄마와 통화에서 부탁 4건을 정리했어요.\n✅ …\n🟡 …\n결제할까요?",
-  "data": {"digest_id": "20261107-151932-ab12", "items": [{"order_id": "o-1a2b3c4d", "status": "awaiting_approval", "item": "전기요", "product": "한일 전기요 싱글 (탄소매트)", "quantity": 1, "total": 59000, "mom_said": "…", "alternatives": []}]}
+  "data": {
+    "digest_id": "20261107-151932-ab12", "parent": "엄마", "created_at": "2026-11-07T15:19:32",
+    "items": [{"order_id": "o-1a2b3c4d", "status": "awaiting_approval", "item": "전기요",
+               "product": "한일 전기요 싱글 (탄소매트)", "quantity": 1, "total": 59000,
+               "mom_said": "요즘 밤에 너무 추워서 전기요 하나 있으면 좋겠어.", "reason": "처음 사는 상품이라 확인이 필요해요.",
+               "alternatives": []}],
+    "other_tasks": ["다음 주 화요일 병원 예약 알아보기"],
+    "reply_tools": {"approve": "approve_order(order_id)", "reject": "reject_order(order_id)", "list": "list_parent_requests()"}
+  }
 }
 ```
 
-vooy가 원하는 형식이 다르면 `src/oba_hack/notify.py`의 `push()`만 맞추면 됩니다. 발송에 실패하면 정리본은 보낼 함에 남아 크론잡(A)으로도 가져갈 수 있습니다.
+2xx 응답이면 전달 완료, 그 외에는 재시도합니다. 받는 쪽 서명 검증 예 (Python):
+
+```python
+expected = "sha256=" + hmac.new(secret.encode(), ts.encode() + b"." + raw_body, hashlib.sha256).hexdigest()
+ok = hmac.compare_digest(request.headers["X-Oba-Signature"], expected)
+```
+
+vooy가 다른 형식을 원하면 `src/oba_hack/notify.py`의 `_payload()`만 맞추면 됩니다.
+
+**데모용 모의 vooy:** 대시보드의 **모의 vooy로 연결**을 누르면 웹훅 주소가 이 서버의 `/mock/vooy/webhook`으로 설정됩니다.
+모의 vooy는 토큰·서명을 실제로 검증하고, 도착한 메시지를 알림 피드에 "📱 vooy(모의)에 도착"으로 보여 줍니다.
+
+### B. 크론
+
+**vooy 반복 작업 (MCP 도구):** "5분마다 `get_new_parent_requests`를 실행하고, 새 정리본이 있으면 text를 그대로 나에게 보내고
+결제할지 물어봐. 없으면 아무 말도 하지 마." 가져간 정리본은 전달됨으로 표시됩니다.
+
+**HTTP 크론 (REST):** 가족 업로드 토큰(대시보드 "지금 바로 쓰는 아이폰 연결")으로 호출합니다.
+
+```http
+GET  /v1/vooy/digests                 # 새 정리본을 가져가며 전달됨 표시
+GET  /v1/vooy/digests?mark=false      # 보기만 (전달 확인은 아래 ack로)
+POST /v1/vooy/digests/ack             # {"ids": ["20261107-151932-ab12"]}
+Authorization: Bearer <가족 업로드 토큰>
+```

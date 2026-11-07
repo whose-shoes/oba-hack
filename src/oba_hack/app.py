@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import hmac
+import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -16,11 +20,26 @@ from .config import data_dir
 STATIC = Path(__file__).parent / "static"
 SAMPLES = Path(__file__).parent / "samples"
 
+async def _retry_loop() -> None:
+    """웹훅 실패분·웹훅을 나중에 켰을 때 쌓인 정리본을 주기적으로 다시 보낸다."""
+    interval = float(os.environ.get("OBA_VOOY_RETRY_SEC", "10"))
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await asyncio.to_thread(notify.retry_pending)
+        except Exception as e:  # 루프는 죽지 않게
+            print(f"[vooy] retry error: {e!r}", flush=True)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     async with mcp_server.server.session_manager.run():  # vooy용 MCP(Streamable HTTP)
         print(f"[mcp] vooy 연결 주소: {mcp_server.public_url()}", flush=True)
-        yield
+        task = asyncio.create_task(_retry_loop())
+        try:
+            yield
+        finally:
+            task.cancel()
 
 
 app = FastAPI(title="오바란 — 엄마 전화 한 통이면 끝", lifespan=lifespan)
@@ -51,6 +70,7 @@ def state() -> dict:
         "family": family.public(family.current()),
         "mcp_url": mcp_server.public_url(),
         "vooy_pending": len(notify.pending()),
+        "vooy": notify.public_settings(),
         "history": [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")}
                     for h in catalog.history("엄마")],
     }
@@ -215,3 +235,69 @@ def simulate_call(body: SimCall, background: BackgroundTasks) -> dict:
     if call_id:
         background.add_task(pipeline.process_call, call_id)
     return result
+
+
+# ---------- vooy 웹훅 설정 · 테스트 · 모의 수신함 ----------
+
+class VooySettingsIn(BaseModel):
+    push_url: str | None = None
+    push_token: str | None = None
+    user_id: str | None = None
+    signing_secret: str | None = None
+
+
+@app.get("/api/vooy")
+def vooy_settings() -> dict:
+    return notify.public_settings() | {"mcp_url": mcp_server.public_url()}
+
+
+@app.put("/api/vooy")
+def vooy_update(body: VooySettingsIn) -> dict:
+    try:
+        out = notify.update_settings(body.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    notify.retry_pending()  # 웹훅을 막 켰다면 쌓여 있던 정리본을 바로 보낸다
+    return out
+
+
+@app.post("/api/vooy/test")
+def vooy_test() -> dict:
+    return notify.send_test()
+
+
+@app.post("/mock/vooy/webhook")
+async def mock_vooy_webhook(request: Request) -> dict:
+    """데모용 '모의 vooy': 우리가 보낸 웹훅을 vooy처럼 받아 인증·서명을 확인하고 도착 메시지를 남긴다."""
+    body = await request.body()
+    s = notify.settings()
+    if s["push_token"] and request.headers.get("authorization") != f"Bearer {s['push_token']}":
+        raise HTTPException(401, "bad token")
+    verified = None
+    if s["signing_secret"]:
+        expect = notify.sign(s["signing_secret"], request.headers.get("x-oba-timestamp", ""), body)
+        verified = hmac.compare_digest(request.headers.get("x-oba-signature", ""), expect)
+        if not verified:
+            raise HTTPException(401, "bad signature")
+    data = json.loads(body)
+    store.log("vooy_mock", request.headers.get("x-oba-delivery", ""),
+              "📱 vooy(모의)에 도착" + (" · 서명 확인" if verified else "") + ": " + data.get("text", ""))
+    return {"ok": True, "signature_verified": verified}
+
+
+# ---------- vooy 크론용 REST (MCP 대신 HTTP로 가져갈 때) ----------
+
+@app.get("/v1/vooy/digests")
+def poll_digests(mark: bool = True, _: dict = Depends(ingest.upload_auth)) -> dict:
+    """새 정리본. mark=true(기본)면 가져가며 전달됨 표시, false면 보기만 하고 /ack로 확인."""
+    items = notify.take_pending("rest") if mark else notify.pending()
+    return {"digests": [notify.public(d) for d in items]}
+
+
+class AckIn(BaseModel):
+    ids: list[str]
+
+
+@app.post("/v1/vooy/digests/ack")
+def ack_digests(body: AckIn, _: dict = Depends(ingest.upload_auth)) -> dict:
+    return {"acked": notify.mark_delivered(body.ids, "rest")}

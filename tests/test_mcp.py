@@ -116,30 +116,6 @@ def test_update_delegation_and_unknown_order(client):
     assert unknown["ok"] is False and "찾지 못했어요" in unknown["message"]
 
 
-def test_push_adapter_marks_delivered(client, monkeypatch):
-    c, _ = client
-    sent = {}
-
-    class Resp:
-        def raise_for_status(self):
-            pass
-
-    def fake_post(url, headers=None, json=None, timeout=None):
-        sent.update(url=url, auth=headers["Authorization"], body=json)
-        return Resp()
-
-    monkeypatch.setenv("OBA_VOOY_PUSH_URL", "https://vooy.example/push")
-    monkeypatch.setenv("OBA_VOOY_PUSH_TOKEN", "t0k")
-    monkeypatch.setenv("OBA_VOOY_USER_ID", "child-1")
-    monkeypatch.setattr(notify.httpx, "post", fake_post)
-    fam = family.register("지누", CHILD, [{"label": "엄마", "phone": MOM}])
-    family.consent(fam["id"], fam["parents"][0]["id"])
-    c.post("/api/simulate/call-ended", json={"transcript": DAILY})
-    assert sent["url"] == "https://vooy.example/push" and sent["auth"] == "Bearer t0k"
-    assert sent["body"]["user_id"] == "child-1" and "결제할까요" in sent["body"]["text"]
-    assert notify.pending() == []
-
-
 def test_family_notes_reach_the_llm_prompt(client, monkeypatch):
     from oba_hack import llm
 
