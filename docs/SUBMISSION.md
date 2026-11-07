@@ -32,7 +32,7 @@ SKT A.X K2 (OpenAI 호환 Chat Completions), SKT 에이닷 통화 녹음, vooy (
 ## 링크
 
 - GitHub URL: https://github.com/whose-shoes/oba-hack (공개, 2026-11-07 16:19 전환)
-- 데모 URL: https://c12b-125-131-149-33.ngrok-free.app/ — 이 Mac에서 실행 중인 서버(ngrok). ngrok을 재시작하면 주소가 바뀌므로 제출 직전에 다시 확인. 0탭(SKT 연동) 경로는 대시보드의 '통화 시뮬레이터'로 모의 시연한다고 명시
+- 데모 URL: https://ae00-125-131-149-33.ngrok-free.app/ — 이 Mac에서 실행 중인 서버(ngrok). ngrok을 재시작하면 주소가 바뀌므로 제출 직전에 다시 확인. 0탭(SKT 연동) 경로는 대시보드의 '통화 시뮬레이터'로 모의 시연한다고 명시
 
 ## 제출 전 확인
 
