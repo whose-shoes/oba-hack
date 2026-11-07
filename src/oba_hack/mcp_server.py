@@ -142,6 +142,8 @@ def setup_parent(
     child_name: str | None = None,
 ) -> dict[str, Any]:
     fam = family.current()
+    if fam is not None and child_phone and family.normalize_phone(child_phone) != fam["child_phone"]:
+        fam = None  # 다른 자녀 번호 → 다른 계정의 새 등록
     try:
         if fam is None:
             need = [n for n, v in (("엄마 전화번호", parent_phone), ("내 전화번호", child_phone)) if not v]

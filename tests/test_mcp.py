@@ -237,3 +237,14 @@ def test_handoff_sends_naver_link(client):
     (third,) = mcp(("approve_order", {"order_id": oid}))
     assert third["handoff"]["shop"] == "11번가" and third["handoff"]["price_on_link"] == 19710
     assert third["message"].startswith("이 11번가 상품 링크에서 1개 구매하세요(테스트 결제): https://www.11st.co.kr/products/6891052001")
+
+
+def test_another_account_registers_with_a_different_child_phone(client):
+    a, b = mcp(
+        ("setup_parent", {"parent_phone": MOM, "child_phone": CHILD, "child_name": "레오"}),
+        ("setup_parent", {"parent_phone": "010-3333-4444", "child_phone": "010-5555-6666", "child_name": "지누"}),
+    )
+    assert a["created"] and b["created"]
+    assert family.current()["child_name"] == "지누" and len(family.families()) == 2
+    (same,) = mcp(("setup_parent", {"child_phone": "010-5555-6666", "note": "커피는 맥심"}))
+    assert same["created"] is False and len(family.families()) == 2
