@@ -25,7 +25,10 @@ INSTRUCTIONS = """don't call me, Mama: 엄마(부모님)와 자녀가 통화를 
   내(사용자) 전화번호·배송지·엄마의 선호/건강 메모를 대화로 물어 setup_parent로 등록하세요. 한 번에 다 묻지 말고 필요한 것부터.
 - 결제(approve_order)와 취소(cancel_order)는 반드시 상품·수량·금액을 보여 주고 사용자가 분명히 동의한 뒤에만 부르세요.
 - 🚫(결제 안 함) 항목은 결제를 제안하지 말고 엄마께 직접 확인하라고 안내하세요.
-- 결과를 전할 때 엄마께 보낸 문자 내용도 함께 알려 주세요. 결제는 모두 테스트 결제입니다."""
+- 결과를 전할 때 엄마께 보낸 문자 내용도 함께 알려 주세요. 결제는 모두 테스트 결제입니다.
+- [자동 확인] 등록이 끝났거나 응답에 auto_check_needed=true가 있으면, vooy의 반복 작업(일정) 기능으로
+  5분마다 get_new_parent_requests를 실행하는 반복 작업을 만드세요(setup_auto_check가 문구를 줍니다).
+  반복 실행 때는 has_new가 true일 때만 사용자에게 말하고, false면 조용히 있으세요."""
 
 server = MCPServer(name="dont-call-me-mama", title="don't call me, Mama · 엄마 부탁 대신 처리", instructions=INSTRUCTIONS)
 
@@ -48,6 +51,29 @@ def _policy_brief() -> dict:
         "이번_달_사용": won(policy.spent_this_month()),
         "차단_품목": p["blocked_categories"],
     }
+
+
+AUTO_CHECK = {
+    "interval_minutes": 5,
+    "tool": "get_new_parent_requests",
+    "instruction": ("5분마다 get_new_parent_requests를 실행해. has_new가 true면 message를 그대로 나에게 보내고, "
+                    "확인이 필요한 주문은 결제할지 물어봐. has_new가 false면 아무 말도 하지 마."),
+}
+
+
+def _auto_check_on() -> bool:
+    """vooy가 최근 10분 안에 폴링했으면 자동 확인이 켜진 것으로 본다."""
+    last = notify.poll_status().get("last_polled_at")
+    return bool(last) and (datetime.now() - datetime.fromisoformat(last)).total_seconds() < 600
+
+
+def _with_auto_check(out: dict[str, Any]) -> dict[str, Any]:
+    if not _auto_check_on():
+        out["auto_check_needed"] = True
+        out["next_action"] = ("vooy 반복 작업(일정) 기능으로 5분마다 get_new_parent_requests를 실행하는 반복 작업을 만들어 주세요. "
+                              "그래야 엄마와 통화가 끝나면 5분 안에 자녀에게 정리본이 갑니다.")
+        out["auto_check"] = AUTO_CHECK
+    return out
 
 
 def _find_order(ref: str, statuses: tuple[str, ...]) -> dict | None:
@@ -90,8 +116,9 @@ def get_family_status() -> dict[str, Any]:
     waiting = p["consent"] != "granted"
     msg = (f"{p['label']}께 동의 요청 문자를 보냈고 답장을 기다리는 중이에요. 동의하시면 통화가 끝날 때마다 자동으로 정리해 드려요."
            if waiting else f"{josa(p['label'], '과', '와')} 연결돼 있어요. 통화가 끝나면 부탁을 정리해서 먼저 알려 드릴게요.")
-    return {"set_up": True, "consent_pending": waiting, "message": msg,
-            "family": family.summary(fam), "delegation": _policy_brief()}
+    return _with_auto_check({"set_up": True, "consent_pending": waiting, "message": msg,
+                             "auto_check_on": _auto_check_on(), "family": family.summary(fam),
+                             "delegation": _policy_brief()})
 
 
 @server.tool(
@@ -128,9 +155,9 @@ def setup_parent(
                 "birthday": birthday, "notes": [note] if note else [],
             }])
             label = fam["parents"][0]["label"]
-            return {"ok": True, "created": True, "family": family.summary(fam),
+            return _with_auto_check({"ok": True, "created": True, "family": family.summary(fam),
                     "message": f"{label} 정보를 등록하고 {label}께 동의 요청 문자를 보냈어요. "
-                               f"{label}께서 ‘예’라고 답장하시면 그때부터 통화가 끝날 때마다 부탁을 정리해 드려요."}
+                               f"{label}께서 ‘예’라고 답장하시면 그때부터 통화가 끝날 때마다 부탁을 정리해 드려요."})
         fam, changed = family.update(
             fam["id"], child_name=child_name, child_phone=child_phone, label=parent_label, name=parent_name,
             phone=parent_phone, address=address, birthday=birthday, note=note,
@@ -183,6 +210,27 @@ def list_parent_requests(include_done: bool = False) -> dict[str, Any]:
         "closed": [_brief(o) for o in done],
         "other_tasks": tasks,
     }
+
+
+@server.tool(
+    name="setup_auto_check",
+    title="5분 자동 확인 켜기",
+    description=(
+        "통화가 끝나면 자동으로 알림을 받도록 5분 자동 확인을 켭니다. 예: '5분마다 엄마 부탁 확인해줘', '자동 확인 켜줘', "
+        "'통화 끝나면 바로 알려줘'. 이 도구가 돌려주는 instruction 문구로 vooy의 반복 작업(일정)을 5분 주기로 만들어 "
+        "get_new_parent_requests를 실행하세요. 이미 켜져 있으면 그렇다고 알려 줍니다."
+    ),
+    annotations=WRITE,
+)
+def setup_auto_check() -> dict[str, Any]:
+    st = notify.poll_status()
+    store.log("push_to_child", "auto-check", "⏱️ vooy에 5분 자동 확인(반복 작업) 설정을 요청했어요.")
+    if _auto_check_on():
+        return {"ok": True, "already_on": True, "last_polled_at": st.get("last_polled_at"),
+                "message": "이미 5분마다 확인하고 있어요."}
+    return {"ok": True, "already_on": False, "auto_check": AUTO_CHECK,
+            "message": "vooy 반복 작업으로 5분마다 get_new_parent_requests를 실행하도록 만들어 주세요. "
+                       "첫 실행이 들어오면 자동 확인이 켜진 것으로 표시돼요."}
 
 
 POLL_INTERVAL_SEC = 300

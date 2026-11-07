@@ -29,6 +29,7 @@ https://<공개 주소>/mcp/<OBA_MCP_TOKEN>
 | `reject_order` | "그건 빼줘" | 변경 |
 | `cancel_order` | "그거 취소해줘" | **환불 — 사용자 확인 필수** |
 | `update_delegation` | "자동결제 한도 5만원으로" | 변경 |
+| `setup_auto_check` | "5분마다 엄마 부탁 확인해줘" → vooy 반복 작업 문구 | 설정 안내 |
 
 차단된 주문(상품권, 사칭 의심)은 vooy가 `approve_order`를 불러도 서버가 거절합니다.
 
@@ -59,6 +60,12 @@ https://<공개 주소>/mcp/<OBA_MCP_TOKEN>
 - "다른 거 없어?"라고 하면 list_parent_requests의 alternatives를 보여 주고, 고르면 product_id로 approve_order를 부른다.
 - 🚫 결제 안 함 항목은 결제를 제안하지 않고, 엄마께 직접 전화해 확인해 보라고 권한다.
 - 결과를 전할 때 엄마께 보낸 문자 내용도 알려 준다. 결제는 테스트 결제라고 밝힌다.
+
+[자동 확인 — 5분마다 우리 MCP 호출]
+- 등록이 끝났거나 도구 응답에 auto_check_needed=true가 있으면, 사용자에게 "통화가 끝나면 5분 안에 알려 드릴까요?"라고 묻는다.
+- 동의하면(또는 "5분마다 확인해줘"라고 하면) setup_auto_check를 부르고, 돌려받은 instruction 문구로
+  vooy 반복 작업(일정)을 5분 주기로 만든다. 반복 실행 때는 get_new_parent_requests만 부른다.
+- 반복 실행 결과 has_new가 false면 아무 말도 하지 않는다.
 
 [맡기는 범위]
 - "자동결제 한도 올려줘", "처음 사는 것도 알아서 사줘" 같은 말은 update_delegation으로 처리하고 바뀐 범위를 알려 준다.
