@@ -308,3 +308,28 @@ class AckIn(BaseModel):
 @app.post("/v1/vooy/digests/ack")
 def ack_digests(body: AckIn, _: dict = Depends(ingest.upload_auth)) -> dict:
     return {"acked": notify.mark_delivered(body.ids, "rest")}
+
+
+class LinkIn(BaseModel):
+    url: str
+    name: str = ""
+    price: int = 0
+
+
+@app.put("/api/orders/{oid}/link")
+def set_order_link(oid: str, body: LinkIn) -> dict:
+    """찾아 둔 네이버 스마트스토어 상품 링크를 주문에 지정한다 (vooy가 그 링크에서 구매)."""
+    if not body.url.startswith(("https://smartstore.naver.com/", "https://brand.naver.com/",
+                                "https://search.shopping.naver.com/", "https://shopping.naver.com/",
+                                "https://m.smartstore.naver.com/")):
+        raise HTTPException(400, "네이버 쇼핑·스마트스토어 링크만 지정할 수 있어요.")
+    o = store.get("order", oid)
+    if o is None:
+        raise HTTPException(404)
+    o["product"] = {**o["product"], "naver_url": body.url}
+    if body.name:
+        o["product"]["naver_name"] = body.name
+    if body.price:
+        o["product"]["naver_price"] = body.price
+    o.setdefault("timeline", []).append({"at": pipeline.now(), "text": f"네이버 상품 링크 지정: {body.url}"})
+    return store.put("order", oid, o)

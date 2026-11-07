@@ -222,3 +222,19 @@ def test_vooy_buys_on_naver_and_reports_real_product(client):
     assert order["product"]["name"] == "보국 카본매트 전기요 싱글" and order["total"] == 54900
     assert order["catalog_product"]["name"].startswith("한일") and order["receipt"]["method"].startswith("vooy")
     assert any(e["text"] == "엄마, 전기요 주문했어! 모레 와~" for e in c.get("/api/state").json()["events"] if e["kind"] == "sms_to_mom")
+
+
+def test_handoff_sends_naver_link(client):
+    c, _ = client
+    c.put("/api/policy", json={"payment_executor": "vooy"})
+    fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 강남구 강남대로 374"}])
+    family.consent(fam["id"], fam["parents"][0]["id"])
+    c.post("/api/simulate/call-ended", json={"transcript": DAILY})
+    (first,) = mcp(("approve_order", {"order_id": "전기요"}))
+    assert first["handoff"]["link_type"] == "search" and first["handoff"]["buy_here"].startswith("https://search.shopping.naver.com/")
+    oid = first["order"]["order_id"]
+    assert c.put(f"/api/orders/{oid}/link", json={"url": "https://evil.example/x"}).status_code == 400
+    c.put(f"/api/orders/{oid}/link", json={"url": "https://smartstore.naver.com/shop/products/123"})
+    (second,) = mcp(("approve_order", {"order_id": oid}))
+    assert second["handoff"]["link_type"] == "product"
+    assert second["message"].startswith("이 네이버 상품 링크에서 구매하세요: https://smartstore.naver.com/shop/products/123")

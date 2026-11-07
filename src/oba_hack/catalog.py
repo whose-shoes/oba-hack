@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import quote
 from functools import lru_cache
 from pathlib import Path
 
@@ -58,3 +59,11 @@ def search(item: str, detail: str = "", caller: str = "") -> list[dict]:
     if len(out) > 1 and len(out[0]["reasons"]) == 1:  # 이력·규격 근거가 없으면 '알아서 골라 달라'는 부탁에 맞춘 이유
         out[0]["reasons"].insert(0, "같은 품목 중 평점이 가장 높아요")
     return out
+
+
+def naver_link(product: dict, keyword: str = "") -> tuple[str, str]:
+    """(링크, 종류). 상품에 지정된 네이버 상품 링크가 있으면 그것, 없으면 네이버쇼핑 검색 링크."""
+    if product.get("naver_url"):
+        return product["naver_url"], "product"
+    q = (keyword or (product.get("keywords") or [""])[0] or product.get("name", "")).strip()
+    return f"https://search.shopping.naver.com/search/all?query={quote(q)}", "search"

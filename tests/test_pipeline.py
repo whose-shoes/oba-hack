@@ -129,3 +129,28 @@ def test_dashboard_approve_only_authorizes_in_vooy_mode(client):
     rice = by_product(st)["p-rice-10"]
     r = c.post(f"/api/orders/{rice['id']}/approve").json()
     assert r["status"] == "authorized" and r["mandate"]["max_amount"] == rice["total"] and r["receipt"] is None
+
+
+def test_ax_chooses_product_with_reason_and_falls_back(client, monkeypatch):
+    from oba_hack import llm
+
+    c, _ = client
+    def fake(system, user, timeout=40.0):
+        if "쇼핑 비서" in system:   # 상품 선택 요청
+            return {"product_id": "p-chondroitin-b", "reason": "소화가 약하셔서 부담 적은 제품으로 골랐어요",
+                    "search_keyword": "콘드로이친", "buy_criteria": ["1일 1정", "4만원 이하"]}
+        return {"summary": "", "requests": [{"item": "콘도로이친", "detail": "", "quantity": 1,
+                                             "evidence": "요즘 관절이 아파서 콘도로이친 좀 사려고."}]}
+    monkeypatch.setattr(llm, "chat_json", fake)
+    c.post("/api/calls", json={"transcript": "엄마: 요즘 관절이 아파서 콘도로이친 좀 사려고.", "caller": "엄마"})
+    o = c.get("/api/state").json()["orders"][0]
+    assert o["product"]["id"] == "p-chondroitin-b"
+    assert o["ai_pick"]["search_keyword"] == "콘드로이친" and "소화" in o["product"]["reasons"][0]
+
+    # 후보 밖을 고르면 규칙 선택으로
+    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0: (
+        {"product_id": "없는상품"} if "쇼핑 비서" in s else
+        {"summary": "", "requests": [{"item": "콘드로이친", "quantity": 1, "evidence": "콘드로이친 사줘"}]}))
+    c.post("/api/calls", json={"transcript": "엄마: 콘드로이친 사줘.", "caller": "엄마"})
+    o2 = c.get("/api/state").json()["orders"][0]
+    assert o2["product"]["id"] == "p-chondroitin-a" and "ai_pick" not in o2

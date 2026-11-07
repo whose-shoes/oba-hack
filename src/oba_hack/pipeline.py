@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 
-from . import catalog, extract, family, notify, payment, policy, store
+from . import catalog, choose, extract, family, notify, payment, policy, store
 from .config import data_dir, josa
 
 TEXT_EXT = {".txt", ".md", ".text", ".csv", ".json"}
@@ -135,7 +135,15 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
         store.log("push_to_child", oid, f"{josa(caller, '이', '가')} {josa(req.get('item') or '물건', '을', '를')} 부탁하셨는데 맞는 상품을 못 찾았어요.")
         return order
 
-    pick, alts = candidates[0], candidates[1:4]
+    pick = candidates[0]
+    ai = choose.choose(req, candidates, family.notes_for(call.get("family_id")),
+                       [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")} for h in catalog.history(caller)],
+                       policy.get()["max_per_order"])
+    if ai:  # SKT A.X K2가 엄마 상황을 보고 고른 상품
+        pick = next(c for c in candidates if c["id"] == ai["product_id"])
+        pick = {**pick, "reasons": ([f"{ai['engine']} 추천: {ai['reason']}"] if ai["reason"] else []) + pick["reasons"]}
+        order["ai_pick"] = ai
+    alts = [c for c in candidates if c["id"] != pick["id"]][:3]
     qty = max(1, int(req.get("quantity") or 1))
     total = pick["price"] * qty
     budget = req.get("budget_krw")

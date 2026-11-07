@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import store
+from . import catalog, store
 from .config import josa
 
 MAX_ATTEMPTS = 5
@@ -49,6 +49,7 @@ def _item(o: dict) -> dict:
         "total": o.get("total"),
         "mom_said": o["request"].get("evidence", ""),
         "reason": o.get("decision_reason", ""),
+        "naver_link": (catalog.naver_link(p, (o.get("ai_pick") or {}).get("search_keyword", ""))[0] if p else ""),
         "alternatives": [{"product_id": a["id"], "name": a["name"], "total": a["price"] * o.get("quantity", 1)}
                          for a in o.get("alternatives", [])[:3]],
     }
@@ -74,6 +75,9 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
         lines.append("🛒 늘 사던 소액이라 바로 주문할게요: " + ", ".join(
             f"{o['product']['name']} {won(o['total'])}" for o in ready))
     for o in ask:
+        why = (o.get("ai_pick") or {}).get("reason")
+        if why:
+            o = {**o, "decision_reason": f"{o['decision_reason']} 추천 이유: {why}"}
         lines.append(f"🟡 확인 필요: {o['product']['name']} ×{o['quantity']} {won(o['total'])} — "
                      f"{label} 말씀 “{o['request'].get('evidence', '')}” ({o['decision_reason']})")
     for o in nf:
