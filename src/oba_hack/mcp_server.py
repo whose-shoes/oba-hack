@@ -315,23 +315,25 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
             ai = o.get("ai_pick") or {}
             item = ai.get("search_keyword") or (o["product"].get("keywords") or [None])[0] \
                 or o["request"].get("item") or o["product"]["name"]
-            link, link_type = catalog.naver_link(o["product"], item)
+            link, link_type, shop = catalog.buy_link(o["product"], item)
             r["handoff"] = {
-                "buy_here": link, "link_type": link_type,
+                "buy_here": link, "link_type": link_type, "shop": shop,
+                "product_on_link": o["product"].get("link_name", ""), "price_on_link": o["product"].get("link_price", 0),
                 "what": item, "quantity": o["quantity"], "max_amount": o["mandate"]["max_amount"],
                 "buy_criteria": ai.get("buy_criteria", []), "why": ai.get("reason", ""),
                 "ship_to": o.get("ship_to", ""), "recipient": o["caller"],
-                "where": "네이버 스마트스토어(네이버쇼핑)", "reference_product": o["product"]["name"],
+                "where": shop, "reference_product": o["product"]["name"],
                 "mom_said": o["request"].get("evidence", ""),
                 "after": "report_purchase(order_id, success, merchant, paid_amount, order_number, product_name, message_to_mom)",
             }
-            r["message"] = ((f"이 네이버 상품 링크에서 구매하세요: {link} — " if link_type == "product"
+            r["message"] = ((f"이 {shop} 상품 링크에서 1개 구매하세요(테스트 결제): {link} — " if link_type == "product"
                              else f"네이버쇼핑 검색 링크: {link} — ")
                             + f"구매 승인: {item} ×{o['quantity']}, 최대 {won(o['mandate']['max_amount'])}"
                             + (f", 배송지 {o['ship_to']}" if o.get("ship_to") else "")
                             + (f". 고를 때 기준: {', '.join(ai['buy_criteria'])}" if ai.get("buy_criteria") else "")
-                            + f". vooy가 네이버 스마트스토어에서 '{item}'을(를) 찾아 최대 금액 이하의 평점 높은 상품을 골라 "
-                            "주문·결제하세요(테스트 결제). 끝나면 report_purchase로 성공 여부, merchant(예: 네이버 스마트스토어), "
+                            + (f". 위 {shop} 링크의 상품을 주문·결제하세요(테스트 결제). " if link_type == "product" else
+                               f". vooy가 네이버 스마트스토어에서 '{item}'을(를) 찾아 최대 금액 이하의 평점 높은 상품을 골라 주문·결제하세요(테스트 결제). ")
+                            + f"끝나면 report_purchase로 성공 여부, merchant(예: {shop if link_type == 'product' else '네이버 스마트스토어'}), "
                             "paid_amount, order_number, 산 상품명(product_name — 없으면 note에), 엄마께 보낼 문자(message_to_mom)를 알려 주세요. "
                             f"참고 상품: {o['product']['name']}. 우리 테스트몰로 결제하려면 checkout_order(order_id, payment_token)도 쓸 수 있어요.")
             if not o.get("ship_to"):

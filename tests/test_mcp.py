@@ -236,5 +236,10 @@ def test_handoff_sends_naver_link(client):
     assert c.put(f"/api/orders/{oid}/link", json={"url": "https://evil.example/x"}).status_code == 400
     c.put(f"/api/orders/{oid}/link", json={"url": "https://smartstore.naver.com/shop/products/123"})
     (second,) = mcp(("approve_order", {"order_id": oid}))
-    assert second["handoff"]["link_type"] == "product"
-    assert second["message"].startswith("이 네이버 상품 링크에서 구매하세요: https://smartstore.naver.com/shop/products/123")
+    assert second["handoff"]["link_type"] == "product" and second["handoff"]["shop"] == "네이버 스마트스토어"
+    assert "https://smartstore.naver.com/shop/products/123" in second["message"]
+    c.put(f"/api/orders/{oid}/link", json={"url": "https://www.11st.co.kr/products/6891052001",
+                                           "name": "종근당 콘드로이친 1200 플러스 60정 1박스", "price": 19710})
+    (third,) = mcp(("approve_order", {"order_id": oid}))
+    assert third["handoff"]["shop"] == "11번가" and third["handoff"]["price_on_link"] == 19710
+    assert third["message"].startswith("이 11번가 상품 링크에서 1개 구매하세요(테스트 결제): https://www.11st.co.kr/products/6891052001")

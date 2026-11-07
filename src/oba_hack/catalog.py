@@ -61,6 +61,23 @@ def search(item: str, detail: str = "", caller: str = "") -> list[dict]:
     return out
 
 
+def merchant_of(url: str) -> str:
+    if "11st.co.kr" in url:
+        return "11번가"
+    if "naver.com" in url:
+        return "네이버 스마트스토어"
+    return "쇼핑몰"
+
+
+def buy_link(product: dict, keyword: str = "") -> tuple[str, str, str]:
+    """(링크, 종류, 쇼핑몰). 주문에 지정된 상품 링크(11번가·네이버)가 있으면 그것, 없으면 네이버쇼핑 검색 링크."""
+    url = product.get("buy_url") or product.get("naver_url")
+    if url:
+        return url, "product", merchant_of(url)
+    link, kind = naver_link(product, keyword)
+    return link, kind, "네이버쇼핑"
+
+
 def naver_link(product: dict, keyword: str = "") -> tuple[str, str]:
     """(링크, 종류). 상품에 지정된 네이버 상품 링크가 있으면 그것, 없으면 네이버쇼핑 검색 링크."""
     if product.get("naver_url"):

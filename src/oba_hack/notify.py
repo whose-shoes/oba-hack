@@ -49,7 +49,7 @@ def _item(o: dict) -> dict:
         "total": o.get("total"),
         "mom_said": o["request"].get("evidence", ""),
         "reason": o.get("decision_reason", ""),
-        "naver_link": (catalog.naver_link(p, (o.get("ai_pick") or {}).get("search_keyword", ""))[0] if p else ""),
+        "buy_link": (catalog.buy_link(p, (o.get("ai_pick") or {}).get("search_keyword", ""))[0] if p else ""),
         "alternatives": [{"product_id": a["id"], "name": a["name"], "total": a["price"] * o.get("quantity", 1)}
                          for a in o.get("alternatives", [])[:3]],
     }
