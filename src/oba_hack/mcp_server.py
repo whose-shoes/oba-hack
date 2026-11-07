@@ -296,9 +296,16 @@ def update_delegation(
         "auto_approve_limit": auto_approve_limit, "monthly_budget": monthly_budget,
         "max_per_order": max_per_order, "auto_approve_new_items": auto_approve_new_items,
     }.items() if v is not None}
+    # vooy가 입력 형식을 단순화하면서 말하지 않은 항목을 0으로 채워 보낼 수 있다.
+    # 예산·1회 최대 0원(이하)과 음수 한도는 '안 바꿈'으로 본다 (자동결제 한도 0원 = 자동결제 끄기는 허용).
+    for k in ("monthly_budget", "max_per_order"):
+        if k in changes and int(changes[k]) <= 0:
+            changes.pop(k)
+    if "auto_approve_limit" in changes and int(changes["auto_approve_limit"]) < 0:
+        changes.pop("auto_approve_limit")
     for k in ("auto_approve_limit", "monthly_budget", "max_per_order"):
-        if k in changes and not (0 <= int(changes[k]) <= 5_000_000):
-            return {"ok": False, "message": "금액은 0원에서 500만원 사이로 알려 주세요."}
+        if k in changes and int(changes[k]) > 5_000_000:
+            return {"ok": False, "message": "금액은 500만원 이하로 알려 주세요."}
     if changes:
         policy.update(changes)
         store.log("push_to_child", "policy", "맡기는 범위를 바꿨어요: " + ", ".join(f"{k}={v}" for k, v in changes.items()))

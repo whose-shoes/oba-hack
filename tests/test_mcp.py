@@ -108,7 +108,7 @@ def test_server_refuses_to_pay_blocked_orders(client):
 def test_update_delegation_and_unknown_order(client):
     upd, bad, unknown = mcp(
         ("update_delegation", {"auto_approve_limit": 50000, "auto_approve_new_items": True}),
-        ("update_delegation", {"monthly_budget": -1}),
+        ("update_delegation", {"monthly_budget": 10_000_000}),
         ("approve_order", {"order_id": "없는주문"}),
     )
     assert upd["delegation"]["자동결제_한도"] == "50,000원" and upd["delegation"]["처음_사는_상품도_자동결제"] is True
@@ -131,3 +131,10 @@ def test_family_notes_reach_the_llm_prompt(client, monkeypatch):
     family.consent(fam["id"], fam["parents"][0]["id"])
     c.post("/api/simulate/call-ended", json={"transcript": "엄마: 휴지 다 떨어졌어. 엄마 번호 010-2345-6789"})
     assert "깨끗한나라 30롤" in seen["user"] and "6789" not in seen["user"]
+
+
+def test_update_delegation_ignores_zero_filled_fields(client):
+    """vooy가 말하지 않은 항목을 0으로 채워 보내도 예산·1회 최대가 0원이 되지 않는다."""
+    (r,) = mcp(("update_delegation", {"auto_approve_limit": 50000, "monthly_budget": 0, "max_per_order": 0}))
+    assert r["delegation"]["자동결제_한도"] == "50,000원"
+    assert r["delegation"]["월_예산"] == "300,000원" and r["delegation"]["1회_최대"] == "100,000원"
