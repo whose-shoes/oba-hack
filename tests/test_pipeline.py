@@ -97,3 +97,26 @@ def test_llm_failure_falls_back_to_rules(monkeypatch):
     monkeypatch.setattr(httpx, "post", boom)
     r, engine = extract.extract("엄마: 휴지 다 떨어졌어.")
     assert engine == "규칙 기반" and r["requests"][0]["item"] == "휴지"
+
+
+def test_redact_hides_numbers_but_keeps_order_details():
+    text = "엄마: 010-1234-5678로 전화해. 계좌는 110-123-456789야. 휴지 30롤 2개, 19,900원짜리."
+    out = extract.redact(text)
+    assert "5678" not in out and "456789" not in out
+    assert "[전화번호]" in out and "[번호]" in out
+    assert "30롤 2개" in out and "19,900원" in out
+    assert extract.redact("+82 10 2345 6789") == "[전화번호]"
+
+
+def test_llm_receives_redacted_transcript(monkeypatch):
+    from oba_hack import llm
+
+    seen = {}
+
+    def fake(system, user, timeout=40.0):
+        seen["user"] = user
+        return {"summary": "", "requests": []}
+
+    monkeypatch.setattr(llm, "chat_json", fake)
+    extract.extract("엄마: 내 번호 010-2345-6789. 김 좀 사줘.")
+    assert "6789" not in seen["user"] and "김 좀 사줘" in seen["user"]

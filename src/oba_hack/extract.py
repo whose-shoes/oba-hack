@@ -99,9 +99,18 @@ def rule_extract(transcript: str) -> dict:
     }
 
 
+PHONE = re.compile(r"(?:\+?82[-\s.]?|0)1[016789][-\s.]?\d{3,4}[-\s.]?\d{4}")
+LONG_NUMBER = re.compile(r"\d[\d\s-]{9,}\d")  # 계좌·카드 번호처럼 10자리 넘는 숫자열
+
+
+def redact(text: str) -> str:
+    """외부 LLM으로 보내기 전에 전화번호·계좌번호를 가린다 (A.X 요청은 운영 기록에 남을 수 있음)."""
+    return LONG_NUMBER.sub("[번호]", PHONE.sub("[전화번호]", text))
+
+
 def extract(transcript: str) -> tuple[dict, str]:
     """(추출 결과, 사용한 엔진 이름)"""
-    result = llm.chat_json(SYSTEM, f"통화 기록:\n{transcript}")
+    result = llm.chat_json(SYSTEM, f"통화 기록:\n{redact(transcript)}")
     if result and isinstance(result.get("requests"), list):
         result.setdefault("other_tasks", [])
         result.setdefault("scam_signals", [])
