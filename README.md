@@ -103,7 +103,8 @@ uv run pytest                     # 테스트
 | `OBA_DEFAULT_CALLER` | 공유 경로에서 발신자 정보가 없을 때 기본값 (기본 `엄마`) |
 | `OBA_MCP_TOKEN` | vooy용 MCP 주소 `/mcp/<토큰>`의 비밀 경로 (없으면 실행마다 임시 생성) |
 | `OBA_PUBLIC_URL` | 외부 https 주소 (대시보드에 vooy 연결 주소를 보여 줄 때 사용) |
-| `OBA_VOOY_PUSH_URL` · `OBA_VOOY_PUSH_TOKEN` · `OBA_VOOY_USER_ID` | vooy 웹훅이 확인되면 정리본을 즉시 보냄. 비어 있으면 보낼 함에 쌓고 크론잡이 가져감 |
+| `OBA_VOOY_PUSH_URL` · `OBA_VOOY_PUSH_TOKEN` · `OBA_VOOY_USER_ID` · `OBA_VOOY_SIGNING_SECRET` | vooy 웹훅 기본값 (대시보드에서 바꿀 수 있음). 비어 있으면 보낼 함에 쌓고 크론이 가져감 |
+| `OBA_VOOY_RETRY_SEC` | 웹훅 재시도 확인 주기 (기본 10초) |
 
 ## 데모 순서 (대시보드)
 
@@ -118,6 +119,9 @@ uv run pytest                     # 테스트
 | --- | --- | --- |
 | `POST` | `/mcp/<OBA_MCP_TOKEN>` | vooy용 원격 MCP (Streamable HTTP). 도구 8개: [docs/VOOY_RECIPE.md](docs/VOOY_RECIPE.md) |
 | `POST` | `/v1/telco/call-ended` | 통신사 통화 종료 웹훅 (`OBA_TELCO_TOKEN`) |
+| `GET` · `POST` | `/v1/vooy/digests` · `/v1/vooy/digests/ack` | vooy HTTP 크론용 정리본 조회·확인 (가족 업로드 토큰) |
+| `GET` · `PUT` | `/api/vooy` | vooy 웹훅 설정 (토큰·서명 비밀은 응답에 안 나옴) |
+| `POST` | `/api/vooy/test` · `/mock/vooy/webhook` | 웹훅 테스트 발송 · 데모용 모의 vooy 수신함 |
 | `POST` | `/v1/calls` | 단축어 업로드 (공용 또는 가족 토큰). multipart/urlencoded 양식 `file`·`text`·`caller`·`caller_number`, 또는 본문 그대로 |
 | `POST` | `/api/families` | 가입: `{child_name, child_phone, parents:[{label, phone, address}]}` |
 | `POST` | `/api/families/{id}/parents/{pid}/consent` | 부모님 동의 `{granted}` |
