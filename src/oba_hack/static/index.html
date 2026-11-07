@@ -2,100 +2,240 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F7F7F8">
 <title>don't call me, Mama</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css">
 <style>
-:root{--bg:#f6f5f2;--card:#fff;--ink:#1d1d1f;--sub:#6b6b70;--line:#e6e4df;--accent:#e8442e;--ok:#1f8a4c;--warn:#b26a00;--bad:#c62828;--chip:#f0eee9;--mom:#fde7e3}
-@media (prefers-color-scheme:dark){:root{--bg:#141416;--card:#1e1e21;--ink:#f2f2f3;--sub:#a0a0a8;--line:#2e2e33;--chip:#2a2a2f;--mom:#3a2420}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif}
-header{padding:20px 16px 8px;max-width:1200px;margin:auto;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;justify-content:space-between}
-h1{margin:0;font-size:22px}h1 span{color:var(--accent)}h2{font-size:15px;margin:0 0 10px;color:var(--sub);font-weight:600}
-.badges{display:flex;gap:6px;flex-wrap:wrap}.badge{background:var(--chip);border-radius:99px;padding:3px 10px;font-size:12px;color:var(--sub)}
-main{max-width:1200px;margin:auto;padding:8px 16px 40px;display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
-@media (max-width:860px){main{grid-template-columns:1fr}}
-main>div{min-width:0}.card,.quote,.bubble,.sub{overflow-wrap:anywhere}.row.between>.name{flex:1;min-width:0}
-section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:16px}
-.card{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
-.card.ask{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
+/* ===== Montage (Wanted Design System) tokens — packages/theme/src/theme ===== */
+:root{
+  --fg-primary:#171719; --fg-strong:#000; --fg-secondary:rgba(46,47,51,.88); --fg-tertiary:rgba(55,56,60,.61); --fg-quaternary:rgba(55,56,60,.28);
+  --fg-brand:#0066FF; --fg-positive:#00BF40; --fg-cautionary:#FF9200; --fg-negative:#FF4242; --fg-violet:#6541F2; --fg-inverse:#F7F7F8;
+  --bg-primary:#FFFFFF; --bg-secondary:#F7F7F8;
+  --surface-primary:#FFFFFF; --surface-elevated:#FFFFFF; --surface-secondary:rgba(112,115,124,.08); --surface-tertiary:rgba(112,115,124,.05);
+  --surface-strong:rgba(112,115,124,.16); --surface-inverse:#1B1C1E;
+  --surface-brand:#0066FF; --surface-brand-strong:#005EEB; --surface-brand-subtle:rgba(0,102,255,.05);
+  --surface-positive:rgba(0,191,64,.08); --surface-cautionary:rgba(255,146,0,.08); --surface-negative:rgba(255,66,66,.08); --surface-violet:rgba(101,65,242,.08);
+  --line-primary:rgba(112,115,124,.22); --line-secondary:rgba(112,115,124,.16); --line-tertiary:rgba(112,115,124,.08);
+  --line-brand:rgba(0,102,255,.28); --line-brand-strong:rgba(0,102,255,.43); --line-focus:rgba(0,102,255,.12); --line-violet:rgba(101,65,242,.43);
+  --shadow-xsmall:0 1px 2px -1px rgba(23,23,23,.1);
+  --shadow-small:0 2px 4px -2px rgba(23,23,23,.06),0 4px 6px -1px rgba(23,23,23,.06);
+  --shadow-medium:0 4px 6px -2px rgba(23,23,23,.07),0 10px 15px -3px rgba(23,23,23,.07);
+  --shadow-large:0 6px 10px -4px rgba(23,23,23,.08),0 16px 24px -6px rgba(23,23,23,.08);
+  --r-8:8px; --r-10:10px; --r-12:12px; --r-16:16px; --r-20:20px; --r-full:9999px;
+  --bad:var(--fg-negative);
+  --tabbar-h:64px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --fg-primary:#F7F7F8; --fg-strong:#fff; --fg-secondary:rgba(194,196,200,.88); --fg-tertiary:rgba(174,176,182,.61); --fg-quaternary:rgba(174,176,182,.28);
+  --fg-brand:#3385FF; --fg-positive:#1ED45A; --fg-cautionary:#FFA938; --fg-negative:#FF6363; --fg-violet:#9E86FC; --fg-inverse:#171719;
+  --bg-primary:#1B1C1E; --bg-secondary:#0F0F10;
+  --surface-primary:#1B1C1E; --surface-elevated:#212225; --surface-secondary:rgba(112,115,124,.22); --surface-tertiary:rgba(112,115,124,.12);
+  --surface-strong:rgba(112,115,124,.28); --surface-inverse:#F7F7F8;
+  --surface-brand:#3385FF; --surface-brand-strong:#1A75FF; --surface-brand-subtle:rgba(51,133,255,.08);
+  --surface-positive:rgba(30,212,90,.08); --surface-cautionary:rgba(255,169,56,.08); --surface-negative:rgba(255,99,99,.12); --surface-violet:rgba(125,94,247,.14);
+  --line-primary:rgba(112,115,124,.32); --line-secondary:rgba(112,115,124,.22); --line-tertiary:rgba(112,115,124,.12);
+  --line-brand:rgba(51,133,255,.35); --line-brand-strong:rgba(51,133,255,.5); --line-focus:rgba(51,133,255,.2); --line-violet:rgba(125,94,247,.5);
+}}
+
+/* ===== base ===== */
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg-secondary);color:var(--fg-primary);
+  font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,system-ui,"Apple SD Gothic Neo",sans-serif;
+  font-size:.9375rem;line-height:1.375rem;letter-spacing:.0096em;font-feature-settings:"tnum" 0}
+b,strong{font-weight:600}
+.small{font-size:.75rem;line-height:1rem;letter-spacing:.0252em}
+.sub{color:var(--fg-tertiary);font-size:.8125rem;line-height:1.125rem;letter-spacing:.0194em}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.between{justify-content:space-between}
-.quote{background:var(--mom);border-radius:10px;padding:8px 10px;margin:8px 0;font-size:14px}
-.quote b{font-size:12px;color:var(--sub);display:block}
-.name{font-weight:650}.price{font-weight:700;font-variant-numeric:tabular-nums}
-.sub{color:var(--sub);font-size:13px}.small{font-size:12px}
-.st{font-size:12px;font-weight:650;padding:2px 8px;border-radius:99px;background:var(--chip)}
-.st.paid{color:var(--ok)}.st.awaiting_approval,.st.not_found,.st.needs_transcript{color:var(--warn)}.st.blocked,.st.payment_failed{color:var(--bad)}.st.cancelled,.st.rejected{color:var(--sub)}
-button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;padding:6px 12px;cursor:pointer}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:650}button:disabled{opacity:.5}
-textarea,input{font:inherit;width:100%;border:1px solid var(--line);border-radius:9px;padding:8px;background:var(--bg);color:var(--ink)}
-textarea{min-height:110px}
-details summary{cursor:pointer;color:var(--sub);font-size:13px}
-ul.tl{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--sub)}
-.bubble{background:var(--chip);border-radius:14px 14px 14px 4px;padding:8px 11px;margin:6px 0;font-size:14px}
-.bubble.mom{background:#34c759;color:#fff;border-radius:14px 14px 4px 14px;margin-left:24px}
-.feed{max-height:340px;overflow:auto}
-.policy label{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:6px 0;font-size:14px}
-.policy input[type=number]{width:120px;text-align:right}.policy input[type=checkbox]{width:auto}
-.empty{color:var(--sub);font-size:13px;padding:6px 0}
-pre{white-space:pre-wrap;font:13px/1.5 inherit;margin:6px 0;background:var(--bg);padding:8px;border-radius:8px}
-select{font:inherit;border:1px solid var(--line);border-radius:9px;padding:6px 8px;background:var(--bg);color:var(--ink);max-width:100%}
-.form{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.form label{font-size:13px;color:var(--sub);display:flex;flex-direction:column;gap:4px}
+.empty{color:var(--fg-tertiary);font-size:.875rem;line-height:1.25rem;padding:20px 4px;text-align:center}
+code{font:500 .75rem/1rem ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--surface-secondary);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere;color:var(--fg-secondary)}
+pre{white-space:pre-wrap;font:.8125rem/1.25rem inherit;margin:8px 0 0;background:var(--surface-tertiary);padding:12px;border-radius:var(--r-12);color:var(--fg-secondary)}
+
+/* ===== app bar ===== */
+.appbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg-secondary) 86%,transparent);backdrop-filter:saturate(180%) blur(16px);-webkit-backdrop-filter:saturate(180%) blur(16px);border-bottom:1px solid var(--line-tertiary)}
+.appbar-in{max-width:1200px;margin:auto;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{display:flex;flex-direction:column;gap:2px;min-width:0}
+.brand h1{margin:0;font-size:1.25rem;line-height:1.75rem;letter-spacing:-.012em;font-weight:700}
+.brand h1 span{color:var(--fg-brand)}
+.brand p{margin:0;color:var(--fg-tertiary);font-size:.8125rem;line-height:1.125rem}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;max-width:100%}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border-radius:var(--r-full);background:var(--surface-elevated);border:1px solid var(--line-secondary);color:var(--fg-secondary);font-size:.75rem;font-weight:500;letter-spacing:.0252em;white-space:nowrap}
+.chip.brand{color:var(--fg-brand);border-color:var(--line-brand);background:var(--surface-brand-subtle)}
+
+/* ===== layout ===== */
+main{max-width:1200px;margin:auto;padding:16px 16px calc(var(--tabbar-h) + 24px + env(safe-area-inset-bottom))}
+.panel{display:flex;flex-direction:column;gap:12px;min-width:0}
+@media (min-width:1024px){
+  main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);grid-template-areas:"home inbox" "calls settings";gap:16px;align-items:start;padding-bottom:40px}
+  .panel[data-panel=home]{grid-area:home}.panel[data-panel=calls]{grid-area:calls}
+  .panel[data-panel=inbox]{grid-area:inbox}.panel[data-panel=settings]{grid-area:settings}
+  .tabbar{display:none!important}
+}
+@media (max-width:1023px){
+  .panel{display:none}
+  body[data-tab=home] .panel[data-panel=home],body[data-tab=calls] .panel[data-panel=calls],
+  body[data-tab=inbox] .panel[data-panel=inbox],body[data-tab=settings] .panel[data-panel=settings]{display:flex}
+}
+
+/* ===== section card ===== */
+section{background:var(--surface-elevated);border:1px solid var(--line-tertiary);border-radius:var(--r-20);padding:20px;box-shadow:var(--shadow-xsmall)}
+section h2{margin:0 0 12px;font-size:1.0625rem;line-height:1.5rem;font-weight:600;color:var(--fg-primary);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+section h2 .small{color:var(--fg-tertiary);font-weight:500}
+.count{display:inline-flex;min-width:20px;height:20px;padding:0 6px;border-radius:var(--r-full);background:var(--surface-brand);color:#fff;font-size:.6875rem;font-weight:600;align-items:center;justify-content:center}
+
+/* ===== list card (order / call) ===== */
+.card{background:var(--surface-primary);border:1px solid var(--line-secondary);border-radius:var(--r-16);padding:16px;margin-bottom:10px;transition:box-shadow .2s,border-color .2s}
+.card:last-child{margin-bottom:0}
+.card:hover{box-shadow:var(--shadow-small)}
+.card.ask{border-color:var(--line-brand-strong);background:linear-gradient(var(--surface-brand-subtle),var(--surface-brand-subtle)),var(--surface-primary);box-shadow:var(--shadow-small)}
+.card .row.between + .quote,.card .quote{margin:10px 0}
+.name{font-size:1rem;line-height:1.5rem;font-weight:600;letter-spacing:.0057em;color:var(--fg-primary)}
+.price{font-size:1.0625rem;line-height:1.5rem;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.card .row.between>.name{flex:1;min-width:0}
+.quote{background:var(--surface-tertiary);border-radius:var(--r-12);padding:10px 12px 10px 14px;border-left:3px solid var(--fg-violet);font-size:.9375rem;line-height:1.5rem;color:var(--fg-primary)}
+.quote b{display:block;font-size:.75rem;line-height:1rem;font-weight:600;color:var(--fg-violet);margin-bottom:2px;letter-spacing:.0252em}
+.card .sub{margin-top:2px}
+.card,.quote,.bubble,.sub{overflow-wrap:anywhere}
+
+/* status badge (Montage content badge 느낌) */
+.st{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:var(--r-8);font-size:.75rem;font-weight:600;letter-spacing:.0252em;background:var(--surface-secondary);color:var(--fg-secondary)}
+.st.paid,.st.processed{background:var(--surface-positive);color:var(--fg-positive)}
+.st.awaiting_approval,.st.not_found,.st.needs_transcript,.st.extracted,.st.received{background:var(--surface-cautionary);color:var(--fg-cautionary)}
+.st.blocked,.st.payment_failed{background:var(--surface-negative);color:var(--fg-negative)}
+.st.cancelled,.st.rejected{background:var(--surface-secondary);color:var(--fg-tertiary)}
+
+/* ===== buttons (Montage Button: solid primary / outlined assistive) ===== */
+button{font:inherit;font-size:.875rem;font-weight:600;letter-spacing:.0145em;height:40px;padding:0 16px;border-radius:var(--r-10);
+  border:1px solid var(--line-primary);background:var(--surface-primary);color:var(--fg-primary);cursor:pointer;transition:background .15s,transform .05s,opacity .15s}
+button:hover{background:var(--surface-tertiary)}
+button:active{transform:scale(.98)}
+button.primary{background:var(--surface-brand);border-color:transparent;color:#fff}
+button.primary:hover{background:var(--surface-brand-strong)}
+button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.card .row button{height:36px;border-radius:var(--r-10)}
+.card .row button.primary{flex:1;min-width:140px;height:44px;font-size:.9375rem;border-radius:var(--r-12)}
+#samples button,.card details .row button{height:32px;padding:0 12px;border-radius:var(--r-full);font-size:.8125rem;font-weight:500;color:var(--fg-secondary)}
+#samples{gap:6px}
+
+/* ===== form (Montage TextField) ===== */
+input,select,textarea{font:inherit;font-size:.9375rem;width:100%;border:1px solid var(--line-primary);border-radius:var(--r-12);padding:0 14px;height:48px;background:var(--surface-primary);color:var(--fg-primary);outline:none;transition:border-color .15s,box-shadow .15s}
+textarea{padding:12px 14px;height:auto;min-height:120px;line-height:1.5rem;resize:vertical}
+select{appearance:none;-webkit-appearance:none;padding-right:36px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2370737C' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;width:auto;min-width:0;flex:1}
+input:focus,select:focus,textarea:focus{border-color:var(--fg-brand);box-shadow:0 0 0 3px var(--line-focus)}
+input::placeholder,textarea::placeholder{color:var(--fg-quaternary)}
+input[type=checkbox]{width:22px;height:22px;accent-color:var(--surface-brand);box-shadow:none;flex:none}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+.form label{font-size:.8125rem;line-height:1.125rem;font-weight:500;color:var(--fg-secondary);display:flex;flex-direction:column;gap:6px}
 .form .wide{grid-column:1/-1}
-#onboard.done{padding:10px 14px}
-#toast{position:fixed;left:50%;top:14px;transform:translateX(-50%) translateY(calc(-100% - 24px));opacity:0;pointer-events:none;transition:transform .35s,opacity .35s;z-index:9;max-width:min(92vw,460px);background:var(--ink);color:var(--bg);border-radius:14px;padding:10px 14px;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
-#toast.show{transform:translateX(-50%) translateY(0);opacity:1}
-code{font-size:12px;background:var(--chip);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}
-.bubble.vooy{border-left:3px solid #7c5cff;white-space:pre-line}
+@media (max-width:480px){.form{grid-template-columns:1fr}}
+
+/* ===== onboarding ===== */
+#onboard{background:linear-gradient(135deg,var(--surface-brand-subtle),transparent 60%),var(--surface-elevated);border-color:var(--line-brand)}
+#onboard h2{font-size:1.25rem;line-height:1.75rem;letter-spacing:-.012em}
+#onboard.done{padding:14px 16px;background:var(--surface-elevated);border-color:var(--line-tertiary)}
+#onboard.done>.row span{font-size:.9375rem}
+
+/* ===== details ===== */
+details{margin-top:10px;border-top:1px solid var(--line-tertiary);padding-top:10px}
+details summary{cursor:pointer;color:var(--fg-tertiary);font-size:.8125rem;font-weight:500;list-style:none;display:flex;align-items:center;gap:6px}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .2s;margin:0 2px}
+details[open] summary::before{transform:rotate(45deg)}
+ul.tl{margin:8px 0 0;padding-left:16px;font-size:.75rem;line-height:1.125rem;color:var(--fg-tertiary)}
+ul.tl li{margin:2px 0}
+
+/* ===== inbox bubbles ===== */
+.feed{max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:8px;padding-right:2px}
+@media (max-width:1023px){.feed{max-height:none}}
+.bubble{background:var(--surface-tertiary);border-radius:16px 16px 16px 6px;padding:10px 12px;font-size:.875rem;line-height:1.375rem;color:var(--fg-primary);max-width:100%}
+.bubble .sub{margin-right:4px}
+.bubble.mom{align-self:flex-end;background:var(--surface-brand);color:#fff;border-radius:16px 16px 6px 16px;max-width:88%}
+.bubble.vooy{background:var(--surface-violet);border-left:3px solid var(--fg-violet);white-space:pre-line}
+
+/* ===== policy ===== */
+.policy label{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;font-size:.9375rem;border-bottom:1px solid var(--line-tertiary)}
+.policy label:last-of-type{border-bottom:0}
+.policy input[type=number],.policy input:not([type]){width:140px;height:40px;text-align:right;border-radius:var(--r-10)}
+#history{margin-top:10px}
+
+/* ===== vooy panel ===== */
+#pollstat{font-size:.875rem;line-height:1.25rem;background:var(--surface-tertiary);border-radius:var(--r-12);padding:10px 12px}
+
+/* ===== toast (Montage Toast: inverse surface) ===== */
+#toast{position:fixed;left:50%;bottom:calc(var(--tabbar-h) + 16px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(24px);opacity:0;pointer-events:none;
+  transition:transform .3s cubic-bezier(.2,.8,.2,1),opacity .3s;z-index:20;width:min(92vw,440px);background:var(--surface-inverse);color:var(--fg-inverse);
+  border-radius:var(--r-16);padding:12px 16px;font-size:.875rem;line-height:1.375rem;box-shadow:var(--shadow-large);cursor:pointer}
+#toast.show{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto}
+@media (min-width:1024px){#toast{bottom:auto;top:84px;transform:translateX(-50%) translateY(-16px)}}
+
+/* ===== bottom tab bar (mobile) ===== */
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:10;display:grid;grid-template-columns:repeat(4,1fr);height:calc(var(--tabbar-h) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);
+  background:color-mix(in srgb,var(--bg-primary) 92%,transparent);backdrop-filter:saturate(180%) blur(16px);-webkit-backdrop-filter:saturate(180%) blur(16px);border-top:1px solid var(--line-tertiary)}
+.tabbar button{height:100%;border:0;border-radius:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--fg-quaternary);font-size:.6875rem;font-weight:600;letter-spacing:.0311em;position:relative;padding:0}
+.tabbar button svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tabbar button.on{color:var(--fg-primary)}
+.tabbar button.on svg{stroke:var(--fg-brand)}
+.tabbar .badge{position:absolute;top:8px;left:calc(50% + 6px);min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--fg-negative);color:#fff;font-size:.6875rem;line-height:18px;text-align:center}
+.tabbar .badge:empty{display:none}
+[hidden]{display:none!important}
 </style>
 </head>
-<body>
-<header>
-  <h1>don't call me, <span>Mama</span> <small class="sub" style="font-size:14px;font-weight:400">엄마 전화 한 통이면, 장보기는 끝</small></h1>
-  <div class="badges"><span class="badge" id="llm"></span><span class="badge" id="spent"></span><span class="badge">결제는 모두 테스트 결제</span></div>
-</header>
+<body data-tab="home">
+<header class="appbar"><div class="appbar-in">
+  <div class="brand"><h1>don't call me, <span>Mama</span></h1><p>엄마 전화 한 통이면, 부탁은 알아서 끝</p></div>
+  <div class="chips"><span class="chip brand" id="llm"></span><span class="chip" id="spent"></span><span class="chip">모든 결제는 테스트 결제</span></div>
+</div></header>
 <div id="toast"></div>
 <main>
-  <div>
+  <div class="panel" data-panel="home">
     <section id="onboard"></section>
     <section>
-      <h2>확인이 필요해요</h2>
+      <h2>확인이 필요해요 <span class="count" id="askcount" hidden></span></h2>
       <div id="asks"></div>
     </section>
     <section>
       <h2>주문 내역</h2>
       <div id="orders"></div>
     </section>
-    <section>
-      <h2>받은 통화</h2>
-      <div id="calls"></div>
-    </section>
   </div>
-  <div>
+  <div class="panel" data-panel="inbox">
     <section>
-      <h2>엄마에게 보낸 문자 <span class="small">(모의 발송)</span></h2>
+      <h2>엄마에게 보낸 문자 <span class="small">모의 발송</span></h2>
       <div id="sms" class="feed"></div>
     </section>
     <section>
       <h2>나에게 온 알림</h2>
       <div id="push" class="feed"></div>
     </section>
+  </div>
+  <div class="panel" data-panel="calls">
     <section>
-      <h2>통화 시뮬레이터 <span class="small">(SKT 망 연동 모의: 통화가 끝나면 에이닷이 웹훅 호출)</span></h2>
-      <div class="row" id="samples" style="margin-bottom:8px"></div>
-      <div class="row" style="margin-bottom:6px">
+      <h2>통화 시뮬레이터 <span class="small">SKT 망 연동 모의 · 통화가 끝나면 웹훅 호출</span></h2>
+      <div class="row" id="samples" style="margin-bottom:12px"></div>
+      <div class="row" style="margin-bottom:10px">
         <select id="who"><option value="parent">엄마 번호</option><option value="unknown">모르는 번호 (010-9876-5432)</option></select>
         <select id="dir"><option value="incoming">상대가 걸었어요</option><option value="outgoing">내가 걸었어요</option></select>
       </div>
       <textarea id="transcript" placeholder="엄마: 휴지가 다 떨어졌어. 하나 시켜줘."></textarea>
-      <div class="row between" style="margin-top:8px">
+      <div class="row between" style="margin-top:12px">
         <button id="reset">초기화</button>
         <button class="primary" id="send">📞 통화 종료</button>
       </div>
-      <div class="sub small" id="simmsg" style="margin-top:6px"></div>
+      <div class="sub" id="simmsg" style="margin-top:8px"></div>
     </section>
     <section>
-      <h2>vooy 전달 <span class="small">(확정: vooy가 MCP로 5분마다 폴링 · 웹훅은 선택)</span></h2>
-      <div id="pollstat" style="margin-bottom:4px"></div>
-      <div class="sub small" id="vooystats"></div>
+      <h2>받은 통화</h2>
+      <div id="calls"></div>
+    </section>
+  </div>
+  <div class="panel" data-panel="settings">
+    <section>
+      <h2>vooy 전달 <span class="small">MCP 5분 폴링 · 웹훅 선택</span></h2>
+      <div id="pollstat" style="margin-bottom:8px"></div>
+      <div class="sub" id="vooystats"></div>
       <div class="form">
         <label class="wide">웹훅 주소 (vooy가 준 주소)<input id="v_url" placeholder="https://…"></label>
         <label>토큰<input id="v_token" placeholder="(선택)"></label>
@@ -106,32 +246,38 @@ code{font-size:12px;background:var(--chip);padding:2px 6px;border-radius:6px;ove
         <button id="v_mock">모의 vooy로 연결</button>
         <div class="row"><button id="v_test">테스트 발송</button><button class="primary" id="v_save">저장</button></div>
       </div>
-      <div class="sub small" id="v_msg" style="margin-top:6px"></div>
-      <details style="margin-top:6px" open><summary>5분 폴링 설정 (vooy)</summary>
-        <div class="sub small" style="margin-top:6px">vooy 반복 작업: “5분마다 <code>get_new_parent_requests</code>를 실행하고 새 정리본이 있으면 나에게 보내줘. 없으면 조용히 있어.”<br>
+      <div class="sub" id="v_msg" style="margin-top:8px"></div>
+      <details open><summary>5분 폴링 설정 (vooy)</summary>
+        <div class="sub" style="margin-top:8px">vooy 반복 작업: “5분마다 <code>get_new_parent_requests</code>를 실행하고 새 정리본이 있으면 나에게 보내줘. 없으면 조용히 있어.”<br>
         HTTP 크론이면 <code>GET /v1/vooy/digests</code> (헤더 <code>Authorization: Bearer 가족 업로드 토큰</code>), 보기만 하려면 <code>?mark=false</code> 후 <code>POST /v1/vooy/digests/ack</code>.</div>
       </details>
     </section>
     <section class="policy">
-      <h2>맡기는 범위 (위임 정책)</h2>
-      <label>믿을 수 있는 발신자 <input id="p_trusted" style="width:160px"></label>
+      <h2>맡기는 범위 <span class="small">위임 정책</span></h2>
+      <label>믿을 수 있는 발신자 <input id="p_trusted"></label>
       <label>자동결제 한도 (원) <input type="number" id="p_auto" step="1000"></label>
       <label>처음 사는 상품도 자동결제 <input type="checkbox" id="p_new"></label>
       <label>1회 최대 (원) <input type="number" id="p_max" step="1000"></label>
       <label>월 예산 (원) <input type="number" id="p_month" step="10000"></label>
-      <label>차단 품목 <input id="p_block" style="width:160px"></label>
+      <label>차단 품목 <input id="p_block"></label>
       <label>데모: 카드 결제 실패시키기 <input type="checkbox" id="p_fail"></label>
-      <div class="sub small" id="history"></div>
+      <div class="sub" id="history"></div>
     </section>
   </div>
 </main>
+<nav class="tabbar" aria-label="화면 이동">
+  <button data-tab="home" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>홈<span class="badge" id="badge-home"></span></button>
+  <button data-tab="calls"><svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>통화</button>
+  <button data-tab="inbox"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>알림<span class="badge" id="badge-inbox"></span></button>
+  <button data-tab="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>설정</button>
+</nav>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const won = n => (n ?? 0).toLocaleString("ko-KR") + "원";
 const ST = {paid:"결제 완료",awaiting_approval:"승인 대기",blocked:"차단",payment_failed:"결제 실패",cancelled:"취소·환불",rejected:"주문 안 함",not_found:"상품 못 찾음",received:"수신",extracted:"분석 중",processed:"처리 완료",needs_transcript:"전사 필요"};
 const time = s => s ? s.slice(11,16) : "";
-let policyLoaded = false, vooyLoaded = false, last = "", famKey = null, maxSeq = null, fam = null, toastTimer;
+let policyLoaded = false, vooyLoaded = false, last = "", famKey = null, maxSeq = null, fam = null, toastTimer, unseen = 0;
 
 function toast(text) {
   const t = $("#toast"); t.textContent = text; t.classList.add("show");
@@ -205,6 +351,8 @@ function render(s) {
   $("#llm").textContent = "분석 엔진: " + s.llm;
   $("#spent").textContent = `이번 달 ${won(s.spent_this_month)} / ${won(s.policy.monthly_budget)}`;
   const asks = s.orders.filter(o => ["awaiting_approval","payment_failed"].includes(o.status));
+  $("#askcount").textContent = asks.length; $("#askcount").hidden = !asks.length;
+  $("#badge-home").textContent = asks.length || "";
   $("#asks").innerHTML = asks.map(orderCard).join("") || `<div class="empty">지금은 확인할 게 없어요. 한도 안의 부탁은 알아서 처리했어요.</div>`;
   $("#orders").innerHTML = s.orders.filter(o => !asks.includes(o)).map(orderCard).join("") || `<div class="empty">아직 주문이 없어요.</div>`;
   $("#calls").innerHTML = s.calls.map(c => `<div class="card">
@@ -254,6 +402,7 @@ async function refresh() {
       const vooy = fresh.find(e => e.kind.startsWith("vooy"));
       const pick = vooy || fresh[0];
       if (pick) toast((pick.text.length > 110 ? pick.text.slice(0, 110) + "…" : pick.text) + (fresh.length > 1 ? `  외 ${fresh.length - 1}건` : ""));
+      if (fresh.length && document.body.dataset.tab !== "inbox") { unseen += fresh.length; $("#badge-inbox").textContent = unseen > 9 ? "9+" : unseen; }
     }
     maxSeq = top;
     if (key !== last && !document.activeElement?.dataset?.tr) { last = key; render(s); }
@@ -321,7 +470,20 @@ document.querySelectorAll(".policy input").forEach(i => i.addEventListener("chan
 }));
 let samples = [];
 api("/api/samples").then(s => { samples = s; $("#samples").innerHTML = s.map(x => `<button data-sample="${x.id}">${esc(x.title)}</button>`).join(""); });
+function showTab(name) {
+  document.body.dataset.tab = name;
+  document.querySelectorAll(".tabbar button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  if (name === "inbox") { unseen = 0; $("#badge-inbox").textContent = ""; }
+  try { localStorage.setItem("dcmm-tab", name); } catch (_) {}
+  window.scrollTo({top: 0});
+}
+document.querySelectorAll(".tabbar button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+$("#toast").onclick = () => { $("#toast").classList.remove("show"); showTab("inbox"); };
+const TABS = ["home", "calls", "inbox", "settings"];
+showTab(TABS.includes(location.hash.slice(1)) ? location.hash.slice(1)
+  : ((() => { try { return localStorage.getItem("dcmm-tab"); } catch (_) { return null; } })() || "home"));
 refresh(); setInterval(refresh, 1500);
 </script>
+
 </body>
 </html>
