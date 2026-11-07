@@ -130,6 +130,9 @@ def _act(fn, oid: str, *args) -> dict:
 
 @app.post("/api/orders/{oid}/approve")
 def approve(oid: str) -> dict:
+    """서버 결제 모드면 테스트 결제, vooy 결제 모드면 구매 승인만 내고 결제는 vooy가 한다."""
+    if policy.get().get("payment_executor") == "vooy":
+        return _act(pipeline.authorize, oid)
     return _act(pipeline.approve, oid)
 
 

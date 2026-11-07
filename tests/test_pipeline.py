@@ -120,3 +120,12 @@ def test_llm_receives_redacted_transcript(monkeypatch):
     monkeypatch.setattr(llm, "chat_json", fake)
     extract.extract("엄마: 내 번호 010-2345-6789. 김 좀 사줘.")
     assert "6789" not in seen["user"] and "김 좀 사줘" in seen["user"]
+
+
+def test_dashboard_approve_only_authorizes_in_vooy_mode(client):
+    c, _ = client
+    c.put("/api/policy", json={"payment_executor": "vooy"})
+    st = _run(c, "3-health")
+    rice = by_product(st)["p-rice-10"]
+    r = c.post(f"/api/orders/{rice['id']}/approve").json()
+    assert r["status"] == "authorized" and r["mandate"]["max_amount"] == rice["total"] and r["receipt"] is None

@@ -260,6 +260,7 @@ ul.tl li{margin:2px 0}
       <label>1회 최대 (원) <input type="number" id="p_max" step="1000"></label>
       <label>월 예산 (원) <input type="number" id="p_month" step="10000"></label>
       <label>차단 품목 <input id="p_block"></label>
+      <label>결제는 vooy 에이전트가 실행 <input type="checkbox" id="p_vooypay"></label>
       <label>데모: 카드 결제 실패시키기 <input type="checkbox" id="p_fail"></label>
       <div class="sub" id="history"></div>
     </section>
@@ -277,7 +278,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const won = n => (n ?? 0).toLocaleString("ko-KR") + "원";
 const ST = {ready_for_vooy:"vooy 구매 대기",authorized:"vooy 결제 중",paid:"결제 완료",awaiting_approval:"승인 대기",blocked:"차단",payment_failed:"결제 실패",cancelled:"취소·환불",rejected:"주문 안 함",not_found:"상품 못 찾음",received:"수신",extracted:"분석 중",processed:"처리 완료",needs_transcript:"전사 필요"};
 const time = s => s ? s.slice(11,16) : "";
-let policyLoaded = false, vooyLoaded = false, last = "", famKey = null, maxSeq = null, fam = null, toastTimer, unseen = 0;
+let vooyPays = false, policyLoaded = false, vooyLoaded = false, last = "", famKey = null, maxSeq = null, fam = null, toastTimer, unseen = 0;
 
 function toast(text) {
   const t = $("#toast"); t.textContent = text; t.classList.add("show");
@@ -332,7 +333,7 @@ function orderCard(o) {
   const ask = o.status === "awaiting_approval" || o.status === "payment_failed";
   const alts = ask && o.alternatives?.length ? `<details><summary>다른 상품으로 바꾸기</summary>${o.alternatives.map(a =>
       `<div class="row between small" style="margin-top:6px"><span>${esc(a.name)} · ${won(a.price*o.quantity)}</span><button data-swap="${o.id}" data-pid="${a.id}">이걸로</button></div>`).join("")}</details>` : "";
-  const btns = ask ? `<div class="row" style="margin-top:8px"><button class="primary" data-act="approve" data-id="${o.id}">${won(o.total)} 결제</button><button data-act="reject" data-id="${o.id}">안 살래요</button></div>`
+  const btns = ask ? `<div class="row" style="margin-top:8px"><button class="primary" data-act="approve" data-id="${o.id}">${won(o.total)} ${vooyPays ? "구매 승인 (vooy가 결제)" : "결제"}</button><button data-act="reject" data-id="${o.id}">안 살래요</button></div>`
     : o.status === "paid" ? `<div class="row" style="margin-top:8px"><button data-act="cancel" data-id="${o.id}">취소·환불</button></div>`
     : o.status === "not_found" || o.status === "blocked" ? `<div class="row" style="margin-top:8px"><button data-act="reject" data-id="${o.id}">확인했어요</button></div>` : "";
   return `<div class="card ${ask ? "ask" : ""}">
@@ -350,6 +351,7 @@ function orderCard(o) {
 function render(s) {
   $("#llm").textContent = "분석 엔진: " + s.llm;
   $("#spent").textContent = `이번 달 ${won(s.spent_this_month)} / ${won(s.policy.monthly_budget)}`;
+  vooyPays = s.policy.payment_executor === "vooy";
   const asks = s.orders.filter(o => ["awaiting_approval","payment_failed"].includes(o.status));
   $("#askcount").textContent = asks.length; $("#askcount").hidden = !asks.length;
   $("#badge-home").textContent = asks.length || "";
@@ -387,6 +389,7 @@ function render(s) {
     $("#p_new").checked = p.auto_approve_new_items; $("#p_max").value = p.max_per_order;
     $("#p_month").value = p.monthly_budget; $("#p_block").value = p.blocked_categories.join(", ");
     $("#p_fail").checked = p.simulate_card_failure;
+    $("#p_vooypay").checked = p.payment_executor === "vooy";
     $("#history").textContent = "엄마 구매 이력: " + s.history.map(h => `${h.name}(${h.date})`).join(", ");
   }
 }
@@ -465,7 +468,7 @@ document.querySelectorAll(".policy input").forEach(i => i.addEventListener("chan
   await api("/api/policy", {method:"PUT", body:JSON.stringify({
     trusted_callers:list($("#p_trusted").value), auto_approve_limit:+$("#p_auto").value, auto_approve_new_items:$("#p_new").checked,
     max_per_order:+$("#p_max").value, monthly_budget:+$("#p_month").value, blocked_categories:list($("#p_block").value),
-    simulate_card_failure:$("#p_fail").checked})});
+    simulate_card_failure:$("#p_fail").checked, payment_executor:$("#p_vooypay").checked ? "vooy" : "server"})});
   last = ""; refresh();
 }));
 let samples = [];
