@@ -201,3 +201,24 @@ def test_vooy_checks_out_with_single_use_token(client):
     assert again["ok"] is False
     order = next(o for o in c.get("/api/state").json()["orders"] if o["request"]["item"] == "전기요")
     assert order["status"] == "paid" and order["receipt"]["executor"] == "vooy" and order["mandate"]["used"] is True
+
+
+def test_vooy_buys_on_naver_and_reports_real_product(client):
+    """vooy가 네이버 스마트스토어에서 고른 상품으로 결제·보고하면 그 상품명으로 기록하고, vooy가 쓴 문자를 엄마에게 보낸다."""
+    c, _ = client
+    c.put("/api/policy", json={"payment_executor": "vooy"})
+    fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 강남구 강남대로 374"}])
+    family.consent(fam["id"], fam["parents"][0]["id"])
+    c.post("/api/simulate/call-ended", json={"transcript": DAILY})
+    ok, done = mcp(
+        ("approve_order", {"order_id": "전기요"}),
+        ("report_purchase", {"order_id": "전기요", "success": True, "merchant": "네이버 스마트스토어",
+                             "paid_amount": 54900, "order_number": "2026110712345",
+                             "note": "보국 카본매트 전기요 싱글", "message_to_mom": "엄마, 전기요 주문했어! 모레 와~"}),
+    )
+    assert ok["handoff"]["where"].startswith("네이버") and ok["handoff"]["max_amount"] == 59000
+    assert done["ok"] and "보국 카본매트 전기요 싱글" in done["message"]
+    order = next(o for o in c.get("/api/state").json()["orders"] if o["request"]["item"] == "전기요")
+    assert order["product"]["name"] == "보국 카본매트 전기요 싱글" and order["total"] == 54900
+    assert order["catalog_product"]["name"].startswith("한일") and order["receipt"]["method"].startswith("vooy")
+    assert any(e["text"] == "엄마, 전기요 주문했어! 모레 와~" for e in c.get("/api/state").json()["events"] if e["kind"] == "sms_to_mom")

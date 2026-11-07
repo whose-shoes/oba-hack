@@ -293,12 +293,19 @@ def authorize(oid: str) -> dict:
 
 
 def record_purchase(oid: str, success: bool, merchant: str = "", paid_amount: int = 0,
-                    order_number: str = "", note: str = "", message_to_mom: str = "") -> dict:
-    """vooy 에이전트가 주문·결제한 결과를 받는다. 성공하면 엄마에게 문자."""
+                    order_number: str = "", note: str = "", message_to_mom: str = "",
+                    product_name: str = "", product_url: str = "") -> dict:
+    """vooy 에이전트가 (네이버 스마트스토어 등에서) 주문·결제한 결과를 받는다. 성공하면 엄마에게 문자."""
     o = _load(oid)
     if o["status"] != "authorized":
         raise ValueError("먼저 approve_order로 구매 승인을 받아야 해요.")
     amount = int(paid_amount or o["total"])
+    name = (product_name or (note if success else "")).strip()
+    if success and name and name != o["product"]["name"]:  # vooy가 고른 실제 상품으로 기록
+        o["catalog_product"] = o["product"]
+        o["product"] = {**o["product"], "name": name, "url": product_url, "source": merchant or "쇼핑몰",
+                        "reasons": [f"vooy가 {merchant or '쇼핑몰'}에서 고른 상품"]}
+        o["total"] = amount
     if success:
         o.update(status="paid", paid_at=now(), receipt={
             "tx_id": order_number or f"vooy_{uuid.uuid4().hex[:10]}",

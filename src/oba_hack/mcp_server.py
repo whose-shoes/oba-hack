@@ -312,11 +312,20 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
                 "payment_method": f"{card['label']} {card['brand']} •••• {card['last4']}",
                 "max_amount": o["mandate"]["max_amount"], "single_use": True,
             }
-            r["message"] = (f"구매 승인: {o['product']['name']} ×{o['quantity']}, 최대 {won(o['total'])}"
+            item = o["request"].get("item") or o["product"]["name"]
+            r["handoff"] = {
+                "what": item, "quantity": o["quantity"], "max_amount": o["mandate"]["max_amount"],
+                "ship_to": o.get("ship_to", ""), "recipient": o["caller"],
+                "where": "네이버 스마트스토어(네이버쇼핑)", "reference_product": o["product"]["name"],
+                "mom_said": o["request"].get("evidence", ""),
+                "after": "report_purchase(order_id, success, merchant, paid_amount, order_number, product_name, message_to_mom)",
+            }
+            r["message"] = (f"구매 승인: {item} ×{o['quantity']}, 최대 {won(o['mandate']['max_amount'])}"
                             + (f", 배송지 {o['ship_to']}" if o.get("ship_to") else "")
-                            + f". 쇼핑몰은 {pol['test_merchant']}, 결제수단은 {r['checkout']['payment_method']}입니다. "
-                            "checkout_order(order_id, payment_token)로 바로 결제하세요(토큰은 이 주문에만 1회, 30분 유효). "
-                            "다른 쇼핑몰에서 직접 결제했다면 report_purchase로 결과를 알려 주세요.")
+                            + f". vooy가 네이버 스마트스토어에서 '{item}'을(를) 찾아 최대 금액 이하의 평점 높은 상품을 골라 "
+                            "주문·결제하세요(테스트 결제). 끝나면 report_purchase로 성공 여부, merchant(예: 네이버 스마트스토어), "
+                            "paid_amount, order_number, 산 상품명(product_name — 없으면 note에), 엄마께 보낼 문자(message_to_mom)를 알려 주세요. "
+                            f"참고 상품: {o['product']['name']}. 우리 테스트몰로 결제하려면 checkout_order(order_id, payment_token)도 쓸 수 있어요.")
             if not o.get("ship_to"):
                 r["missing"] = ["ship_to"]
                 r["message"] += (f" 단, {o['caller']} 배송지가 등록돼 있지 않아요. 주문 전에 사용자에게 배송지를 물어 "
@@ -363,17 +372,20 @@ def checkout_order(order_id: str, payment_token: str) -> dict[str, Any]:
         "approve_order로 승인받은 주문을 vooy가 직접 주문·결제한 뒤 결과를 알려 줍니다. 성공했으면 엄마께 보낼 문자를 "
         "message_to_mom에 자식 말투로 적어 주세요(예: '엄마, 휴지 시켜놨어~ 내일 와!'). 서명/제목 없이 1~2문장으로, "
         "상품·배송 요점은 넣고 주문번호나 결제수단 같은 내부 정보는 빼세요. 비워 두면 서버가 기본 문구로 대신 보냅니다. "
-        "success(성공 여부), merchant(쇼핑몰), paid_amount(결제 금액, 원), order_number(주문번호), 실패면 note(사유)를 넣으세요."
+        "success(성공 여부), merchant(쇼핑몰, 예: 네이버 스마트스토어), paid_amount(결제 금액, 원), order_number(주문번호), "
+        "product_name(실제로 산 상품명 — 없으면 note에), product_url(상품 링크), 실패면 note(사유)를 넣으세요."
     ),
     annotations=WRITE,
 )
 def report_purchase(order_id: str, success: bool = True, merchant: str = "", paid_amount: int = 0,
-                    order_number: str = "", note: str = "", message_to_mom: str = "") -> dict[str, Any]:
+                    order_number: str = "", note: str = "", message_to_mom: str = "",
+                    product_name: str = "", product_url: str = "") -> dict[str, Any]:
     o = _find_order(order_id, ("authorized",))
     if o is None:
         return {"ok": False, "message": f"‘{order_id}’에 해당하는 승인된 주문이 없어요. 먼저 approve_order로 승인을 받아 주세요."}
     try:
-        o = pipeline.record_purchase(o["id"], success, merchant, paid_amount, order_number, note, message_to_mom)
+        o = pipeline.record_purchase(o["id"], success, merchant, paid_amount, order_number, note, message_to_mom,
+                                     product_name, product_url)
     except ValueError as e:
         return {"ok": False, "message": str(e)}
     if o["status"] == "paid":
