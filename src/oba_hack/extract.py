@@ -27,6 +27,8 @@ SYSTEM = """너는 '엄마가 자식에게 건 전화' 통화 기록을 읽고, 
 - evidence에는 근거가 된 엄마의 말을 원문 그대로 인용한다.
 - 상품권·기프트카드·송금·계좌·인증번호 요구, '폰이 고장' 같은 사칭 정황은 scam_signals에 적는다.
 - 구매가 아닌 부탁(병원 예약 등)은 other_tasks에 적는다.
+- '참고 정보'(자녀가 등록한 엄마의 선호·건강 메모)에 늘 쓰는 브랜드·규격이 있으면 detail에 반영한다.
+  단, 통화에서 부탁하지 않은 물건을 참고 정보만 보고 requests에 넣지 않는다.
 JSON만 출력:
 {"summary": "한 문장 요약",
  "requests": [{"item": "일반 품목명(예: 휴지)", "detail": "규격/브랜드/옵션 또는 빈 문자열",
@@ -108,9 +110,12 @@ def redact(text: str) -> str:
     return LONG_NUMBER.sub("[번호]", PHONE.sub("[전화번호]", text))
 
 
-def extract(transcript: str) -> tuple[dict, str]:
-    """(추출 결과, 사용한 엔진 이름)"""
-    result = llm.chat_json(SYSTEM, f"통화 기록:\n{redact(transcript)}")
+def extract(transcript: str, context: str = "") -> tuple[dict, str]:
+    """(추출 결과, 사용한 엔진 이름). context: 자녀가 등록한 가족 메모."""
+    prompt = f"통화 기록:\n{redact(transcript)}"
+    if context.strip():
+        prompt = f"참고 정보(자녀가 등록한 가족 메모):\n{redact(context)}\n\n" + prompt
+    result = llm.chat_json(SYSTEM, prompt)
     if result and isinstance(result.get("requests"), list):
         result.setdefault("other_tasks", [])
         result.setdefault("scam_signals", [])
@@ -120,6 +125,7 @@ def extract(transcript: str) -> tuple[dict, str]:
         for r in result["requests"]:
             r["quantity"] = int(r.get("quantity") or 1)
             r.setdefault("detail", "")
-            r.setdefault("evidence", "")
+            # "엄마: ..." 처럼 화자 표기가 붙어 오면 떼어 낸다
+            r["evidence"] = re.sub(r"^\s*[^:：\s]{1,6}\s*[:：]\s*", "", r.get("evidence") or "")
         return result, llm.provider_label()
     return rule_extract(transcript), "규칙 기반"

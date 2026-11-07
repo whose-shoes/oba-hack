@@ -44,6 +44,7 @@ select{font:inherit;border:1px solid var(--line);border-radius:9px;padding:6px 8
 #toast{position:fixed;left:50%;top:14px;transform:translateX(-50%) translateY(calc(-100% - 24px));opacity:0;pointer-events:none;transition:transform .35s,opacity .35s;z-index:9;max-width:min(92vw,460px);background:var(--ink);color:var(--bg);border-radius:14px;padding:10px 14px;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 #toast.show{transform:translateX(-50%) translateY(0);opacity:1}
 code{font-size:12px;background:var(--chip);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}
+.bubble.vooy{border-left:3px solid #7c5cff;white-space:pre-line}
 </style>
 </head>
 <body>
@@ -117,7 +118,7 @@ function toast(text) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 4500);
 }
 
-function renderOnboard(f) {
+function renderOnboard(f, mcpUrl) {
   const el = $("#onboard"); el.classList.toggle("done", false);
   const mom = f?.parents?.[0];
   $("#who").options[0].textContent = mom ? `${mom.label} 번호 (${mom.phone})` : "엄마 번호";
@@ -142,6 +143,10 @@ function renderOnboard(f) {
   } else {
     el.classList.add("done");
     el.innerHTML = `<div class="row between"><span>✅ <b>${esc(mom.label)}</b>(${esc(mom.phone)})와 연동됨 · 통화가 끝나면 알아서 처리해요</span></div>
+      <details><summary>vooy 연결 (MCP)</summary>
+        <div class="sub small" style="margin-top:6px">vooy ‘서비스 연결’에 이 주소를 넣으세요: <code>${esc(mcpUrl)}</code><br>
+        통화가 끝나면 정리본을 vooy로 먼저 보내고, 자녀가 vooy에서 “응 결제해”라고 하면 결제돼요.</div>
+      </details>
       <details><summary>지금 바로 쓰는 아이폰 연결 (에이닷 공유 1탭 · 엄마 문자 자동화)</summary>
         <div class="sub small" style="margin-top:6px">단축어 ‘URL 콘텐츠 가져오기’ → <code>POST /v1/calls</code>, 헤더 <code>Authorization: Bearer ${esc(f.upload_token)}</code>.
         문자 자동화는 양식에 <code>caller_number</code> = 보낸 사람을 넣으면 ${esc(mom.label)} 번호가 아닐 때 서버가 버려요. 자세한 설정은 README.</div>
@@ -192,7 +197,7 @@ function render(s) {
   </div>`).join("") || `<div class="empty">통화가 오면 여기에 보여요.</div>`;
   const ev = [...s.events].reverse();
   $("#sms").innerHTML = ev.filter(e => e.kind === "sms_to_mom").map(e => `<div class="bubble mom">${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
-  $("#push").innerHTML = ev.filter(e => e.kind !== "sms_to_mom").map(e => `<div class="bubble"><span class="sub small">${new Date(e.ts*1000).toTimeString().slice(0,5)}</span> ${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
+  $("#push").innerHTML = ev.filter(e => e.kind !== "sms_to_mom").map(e => `<div class="bubble ${e.kind.startsWith("vooy") ? "vooy" : ""}"><span class="sub small">${new Date(e.ts*1000).toTimeString().slice(0,5)}</span> ${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
   for (const f of ["#sms","#push"]) $(f).scrollTop = 1e9;
   if (!policyLoaded) {
     const p = s.policy; policyLoaded = true;
@@ -207,12 +212,14 @@ function render(s) {
 async function refresh() {
   try {
     const s = await api("/api/state"); const key = JSON.stringify([s.orders, s.calls, s.events.length, s.spent_this_month]);
-    const fk = JSON.stringify(s.family);
-    if (fk !== famKey) { famKey = fk; fam = s.family; renderOnboard(s.family); }
+    const fk = JSON.stringify([s.family, s.mcp_url]);
+    if (fk !== famKey) { famKey = fk; fam = s.family; renderOnboard(s.family, s.mcp_url); }
     const top = s.events.length ? s.events[0].seq : 0;
     if (maxSeq !== null) {
-      const fresh = s.events.filter(e => e.seq > maxSeq && ["push_to_child","filter"].includes(e.kind));
-      if (fresh.length) toast(fresh[0].text + (fresh.length > 1 ? `  외 ${fresh.length - 1}건` : ""));
+      const fresh = s.events.filter(e => e.seq > maxSeq && ["push_to_child","filter","vooy_outbox","vooy_sent"].includes(e.kind));
+      const vooy = fresh.find(e => e.kind.startsWith("vooy"));
+      const pick = vooy || fresh[0];
+      if (pick) toast((pick.text.length > 110 ? pick.text.slice(0, 110) + "…" : pick.text) + (fresh.length > 1 ? `  외 ${fresh.length - 1}건` : ""));
     }
     maxSeq = top;
     if (key !== last && !document.activeElement?.dataset?.tr) { last = key; render(s); }

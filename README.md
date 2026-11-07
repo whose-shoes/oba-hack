@@ -7,7 +7,7 @@ OBA.RUN 2nd 해커톤 SKT Agentic Pay 트랙 출품작. 결제는 모두 **테�
 ## 흐름
 
 ```
-[가입] 자식이 엄마 번호 등록 → 엄마에게 동의 문자 → 엄마 '예' → 연동 완료 (한 번만)
+[가입] 자식이 vooy에 말로 엄마 정보 입력(또는 대시보드) → 엄마에게 동의 문자 → 엄마 '예' → 연동 완료 (한 번만)
 
 엄마 ⇄ 자식 통화 (SKT 에이닷 녹음·요약)
    │  ① 0탭: 통화 종료 시 에이닷이 웹훅 호출   POST /v1/telco/call-ended   (SKT 연동 가정, 데모는 시뮬레이터)
@@ -20,8 +20,11 @@ OBA.RUN 2nd 해커톤 SKT Agentic Pay 트랙 출품작. 결제는 모두 **테�
  [선택] 늘 사던 상품·규격 일치·평점으로 고르고 이유 설명
  [위임] 정책: auto(바로 결제) / ask(자식 승인) / block(결제 안 함)
  [결제] 테스트 결제, 첫 수단 실패 시 다음 수단으로 복구
- [결과] 엄마에게 문자(모의), 자식에게 알림, 취소·환불
+ [결과] 엄마에게 문자(모의), 취소·환불
+ [vooy] 정리본을 자식의 vooy로 먼저 보냄(웹훅 또는 vooy 크론잡) → 자식이 "응 결제해" → vooy가 MCP approve_order 호출
 ```
+
+**vooy 연결(MCP)과 레시피:** [docs/VOOY_RECIPE.md](docs/VOOY_RECIPE.md)
 
 ### 위임 정책 (자식이 대시보드에서 조절)
 
@@ -98,6 +101,9 @@ uv run pytest                     # 테스트
 | `ANTHROPIC_API_KEY` | Claude 키 (2순위) |
 | `OBA_STT_API_KEY` / `OPENAI_API_KEY` | 녹음 파일만 올 때 음성 인식 (없으면 대시보드에서 텍스트 붙여넣기) |
 | `OBA_DEFAULT_CALLER` | 공유 경로에서 발신자 정보가 없을 때 기본값 (기본 `엄마`) |
+| `OBA_MCP_TOKEN` | vooy용 MCP 주소 `/mcp/<토큰>`의 비밀 경로 (없으면 실행마다 임시 생성) |
+| `OBA_PUBLIC_URL` | 외부 https 주소 (대시보드에 vooy 연결 주소를 보여 줄 때 사용) |
+| `OBA_VOOY_PUSH_URL` · `OBA_VOOY_PUSH_TOKEN` · `OBA_VOOY_USER_ID` | vooy 웹훅이 확인되면 정리본을 즉시 보냄. 비어 있으면 보낼 함에 쌓고 크론잡이 가져감 |
 
 ## 데모 순서 (대시보드)
 
@@ -110,6 +116,7 @@ uv run pytest                     # 테스트
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
+| `POST` | `/mcp/<OBA_MCP_TOKEN>` | vooy용 원격 MCP (Streamable HTTP). 도구 8개: [docs/VOOY_RECIPE.md](docs/VOOY_RECIPE.md) |
 | `POST` | `/v1/telco/call-ended` | 통신사 통화 종료 웹훅 (`OBA_TELCO_TOKEN`) |
 | `POST` | `/v1/calls` | 단축어 업로드 (공용 또는 가족 토큰). multipart/urlencoded 양식 `file`·`text`·`caller`·`caller_number`, 또는 본문 그대로 |
 | `POST` | `/api/families` | 가입: `{child_name, child_phone, parents:[{label, phone, address}]}` |
@@ -126,7 +133,9 @@ uv run pytest                     # 테스트
 
 ```
 src/oba_hack/
-  family.py    가입·부모님 번호 등록·동의, 번호 정규화, 통화/발신자 매칭
+  mcp_server.py vooy용 MCP 도구 (말로 엄마 등록, 정리본, 결제·거절·취소, 위임 범위)
+  notify.py    통화 정리본 생성, vooy 웹훅 발송 / 크론잡용 보낼 함
+  family.py    가입·부모님 번호 등록·동의·정보 수정, 번호 정규화, 통화/발신자 매칭
   telco.py     통신사(에이닷) 통화 종료 웹훅, 번호 필터
   ingest.py    단축어 업로드 수신 (공유 1탭, 문자 자동화)
   pipeline.py  전사 → 추출 → 조회·선택 → 위임 → 결제 → 결과, 승인/거절/교체/취소

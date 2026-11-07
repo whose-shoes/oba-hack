@@ -3,21 +3,30 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import catalog, family, ingest, llm, pipeline, policy, store, telco
+from . import catalog, family, ingest, llm, mcp_server, notify, pipeline, policy, store, telco
 from .config import data_dir
 
 STATIC = Path(__file__).parent / "static"
 SAMPLES = Path(__file__).parent / "samples"
 
-app = FastAPI(title="오바란 — 엄마 전화 한 통이면 끝")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    async with mcp_server.server.session_manager.run():  # vooy용 MCP(Streamable HTTP)
+        print(f"[mcp] vooy 연결 주소: {mcp_server.public_url()}", flush=True)
+        yield
+
+
+app = FastAPI(title="오바란 — 엄마 전화 한 통이면 끝", lifespan=lifespan)
 app.include_router(ingest.router)
 app.include_router(telco.router)
+app.router.routes.extend(mcp_server.http_app.routes)
 
 
 @app.get("/health")
@@ -40,6 +49,8 @@ def state() -> dict:
         "spent_this_month": policy.spent_this_month(),
         "llm": llm.provider_label(),
         "family": family.public(family.current()),
+        "mcp_url": mcp_server.public_url(),
+        "vooy_pending": len(notify.pending()),
         "history": [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")}
                     for h in catalog.history("엄마")],
     }
@@ -131,7 +142,7 @@ def reset() -> dict:
     """데모 초기화: 통화·주문·이벤트 삭제 (정책은 유지)."""
     db = store._db()
     with store._lock:
-        db.execute("delete from docs where kind in ('call', 'order', 'telco_call')")
+        db.execute("delete from docs where kind in ('call', 'order', 'telco_call', 'digest')")
         db.execute("delete from events")
         db.commit()
     return {"ok": True}

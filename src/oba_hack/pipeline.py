@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 
-from . import catalog, extract, payment, policy, store
+from . import catalog, extract, family, notify, payment, policy, store
 from .config import data_dir, josa
 
 TEXT_EXT = {".txt", ".md", ".text", ".csv", ".json"}
@@ -99,7 +99,7 @@ def process_call(call_id: str) -> dict:
         call["transcript"] = text
         store.log("step", call_id, f"전사 확보: {how}")
 
-    result, engine = extract.extract(call["transcript"])
+    result, engine = extract.extract(call["transcript"], context=family.notes_for(call.get("family_id")))
     call.update(extraction=result, engine=engine, status="extracted")
     store.log("step", call_id, f"부탁 추출({engine}): {result.get('summary', '')}")
     store.put("call", call_id, call)
@@ -115,6 +115,7 @@ def process_call(call_id: str) -> dict:
         store.log("push_to_child", call_id, "⚠️ 사칭 의심 표현이 있는 통화예요: " + ", ".join(result["scam_signals"]))
 
     _report_to_mom(call, orders)
+    notify.on_call_processed(call, orders)
     return call
 
 
@@ -124,7 +125,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
     candidates = catalog.search(req.get("item", ""), req.get("detail", ""), caller)
     order = {
         "id": oid, "call_id": call["id"], "caller": caller, "request": req, "created_at": now(),
-        "timeline": [], "receipt": None, "attempts": [],
+        "timeline": [], "receipt": None, "attempts": [], "ship_to": _ship_to(call),
     }
     if not candidates:
         order.update(status="not_found", product=None, alternatives=[], quantity=req.get("quantity", 1), total=0,
@@ -160,6 +161,14 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
         store.log("push_to_child", oid, f"🚫 결제 차단: {pick['name']} — {reason}")
     store.put("order", oid, order)
     return order
+
+
+def _ship_to(call: dict) -> str:
+    fam = store.get("family", call.get("family_id")) if call.get("family_id") else family.current()
+    for p in (fam or {}).get("parents", []):
+        if p["label"] == call["caller"] and p.get("address"):
+            return p["address"]
+    return ""
 
 
 def _tl(order: dict, text: str) -> None:
