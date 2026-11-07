@@ -46,7 +46,7 @@ def test_tools_are_listed_with_annotations(client):
 
     tools = {t.name: t for t in asyncio.run(run())}
     assert set(tools) == {"get_family_status", "setup_parent", "list_parent_requests", "get_new_parent_requests",
-                          "approve_order", "report_purchase", "reject_order", "cancel_order", "update_delegation",
+                          "approve_order", "checkout_order", "report_purchase", "reject_order", "cancel_order", "update_delegation",
                           "setup_auto_check"}
     assert tools["approve_order"].annotations.destructive_hint is True
     assert tools["list_parent_requests"].annotations.read_only_hint is True
@@ -178,3 +178,26 @@ def test_auto_check_is_requested_until_vooy_polls(client):
     assert setup["already_on"] is False and "get_new_parent_requests" in setup["auto_check"]["instruction"]
     poll, after = mcp(("get_new_parent_requests", {}), ("get_family_status", {}))
     assert after["auto_check_on"] is True and "auto_check_needed" not in after
+
+
+def test_vooy_checks_out_with_single_use_token(client):
+    """vooy는 카드번호 없이, 승인 때 받은 1회용 토큰으로 테스트몰에서 결제한다."""
+    c, _ = client
+    c.put("/api/policy", json={"payment_executor": "vooy"})
+    fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 강남구 강남대로 374"}])
+    family.consent(fam["id"], fam["parents"][0]["id"])
+    c.post("/api/simulate/call-ended", json={"transcript": DAILY})
+    (ok,) = mcp(("approve_order", {"order_id": "전기요"}))
+    co = ok["checkout"]
+    assert co["tool"] == "checkout_order" and co["payment_token"].startswith("ptok_") and "4242" in co["payment_method"]
+    assert "4242" in json.dumps(ok) and not any(len(x) >= 13 and x.isdigit() for x in json.dumps(ok).split('"'))
+    bad, good, again = mcp(
+        ("checkout_order", {"order_id": "전기요", "payment_token": "ptok_wrong"}),
+        ("checkout_order", {"order_id": "전기요", "payment_token": co["payment_token"]}),
+        ("checkout_order", {"order_id": "전기요", "payment_token": co["payment_token"]}),
+    )
+    assert bad["ok"] is False and "토큰" in bad["message"]
+    assert good["ok"] and good["order_number"].startswith("TM-") and good["paid_amount"] == 59000
+    assert again["ok"] is False
+    order = next(o for o in c.get("/api/state").json()["orders"] if o["request"]["item"] == "전기요")
+    assert order["status"] == "paid" and order["receipt"]["executor"] == "vooy" and order["mandate"]["used"] is True

@@ -274,9 +274,17 @@ def cancel(oid: str) -> dict:
 def authorize(oid: str) -> dict:
     """구매 승인(위임 증서) 발급. 결제는 vooy가 하고, 우리 서버는 한도·차단을 검사해 승인만 한다."""
     o = _load(oid)
-    if o["status"] not in ("ready_for_vooy", "awaiting_approval", "payment_failed"):
+    if not o.get("ship_to"):  # 승인 사이에 배송지가 등록됐으면 반영
+        call = store.get("call", o["call_id"]) or {"caller": o["caller"], "family_id": None}
+        o["ship_to"] = _ship_to(call)
+    if o["status"] not in ("ready_for_vooy", "awaiting_approval", "payment_failed", "authorized"):
         raise ValueError(f"승인할 수 없는 상태: {o['status']}")
-    mandate = {"id": f"m-{uuid.uuid4().hex[:10]}", "max_amount": o["total"], "issued_at": now()}
+    from datetime import timedelta
+    import secrets as _secrets
+    mandate = {"id": f"m-{uuid.uuid4().hex[:10]}", "max_amount": o["total"], "issued_at": now(),
+               # 이 주문·이 금액·30분·1회만 쓸 수 있는 결제 토큰 (카드번호 대신 넘긴다)
+               "payment_token": f"ptok_{_secrets.token_urlsafe(12)}",
+               "expires_at": (datetime.now() + timedelta(minutes=30)).isoformat(timespec="seconds"), "used": False}
     o.update(status="authorized", mandate=mandate)
     _tl(o, f"구매 승인 {mandate['id']} 발급 (최대 {won(o['total'])}) → vooy 에이전트가 주문·결제")
     store.put("order", oid, o)
@@ -308,4 +316,34 @@ def record_purchase(oid: str, success: bool, merchant: str = "", paid_amount: in
         _tl(o, f"vooy 주문·결제 실패: {note or '사유 없음'}")
         store.log("push_to_child", oid, f"❌ vooy가 {o['product']['name']} 결제에 실패했어요: {note or '사유 없음'}")
     store.put("order", oid, o)
+    return o
+
+
+
+def checkout(oid: str, payment_token: str) -> dict:
+    """vooy가 테스트몰에서 1회용 결제 토큰으로 결제한다 (가맹점·PG 역할은 우리 서버의 모의 구현)."""
+    o = _load(oid)
+    m = o.get("mandate") or {}
+    if o["status"] != "authorized":
+        raise ValueError("먼저 approve_order로 구매 승인을 받아야 해요.")
+    if not m.get("payment_token") or payment_token.strip() != m["payment_token"]:
+        raise ValueError("결제 토큰이 맞지 않아요. approve_order로 받은 payment_token을 그대로 넣어 주세요.")
+    if m.get("used"):
+        raise ValueError("이미 사용한 결제 토큰이에요.")
+    if datetime.now() > datetime.fromisoformat(m["expires_at"]):
+        raise ValueError("결제 토큰이 만료됐어요. approve_order로 다시 승인을 받아 주세요.")
+    pol = policy.get()
+    card = pol["family_payment_method"]
+    if o["total"] > m["max_amount"]:
+        raise ValueError("승인 금액을 넘어요.")
+    order_no = f"TM-{datetime.now():%m%d}-{uuid.uuid4().hex[:6].upper()}"
+    m["used"] = True
+    o.update(status="paid", paid_at=now(), receipt={
+        "tx_id": f"test_{uuid.uuid4().hex[:12]}", "order_number": order_no, "amount": o["total"],
+        "method": f"{pol['test_merchant']} · {card['label']} {card['brand']} •••• {card['last4']}",
+        "approved_at": now(), "executor": "vooy", "test": True})
+    _tl(o, f"vooy가 {pol['test_merchant']}에서 결제: {won(o['total'])} (주문번호 {order_no}, 토큰 1회 사용)")
+    store.put("order", oid, o)
+    store.log("push_to_child", oid, f"✅ vooy가 {o['product']['name']} {won(o['total'])} 결제를 마쳤어요 (주문번호 {order_no}).")
+    store.log("sms_to_mom", oid, f"{o['caller']}, {o['product']['name']} 주문했어요. {o['product']['delivery']} 예정이에요.")
     return o

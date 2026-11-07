@@ -26,6 +26,9 @@ DEFAULT = {
     ],
     "simulate_card_failure": False,   # 데모: 카드 결제 실패 → 다음 수단으로 복구
     "payment_executor": "server",     # "vooy": vooy 에이전트가 직접 주문·결제, 우리 서버는 구매 승인만
+    # vooy가 결제할 때 쓰는 가족 결제수단. 실제 카드번호는 저장·전송하지 않고, 주문별 1회용 토큰만 넘긴다.
+    "family_payment_method": {"label": "가족 공용 카드 (테스트)", "brand": "VISA", "last4": "4242"},
+    "test_merchant": "don't call me, Mama 테스트몰",
 }
 
 

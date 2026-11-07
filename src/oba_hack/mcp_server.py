@@ -288,7 +288,7 @@ def _vooy_pays() -> bool:
     annotations=PAY,
 )
 def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
-    allowed = ("awaiting_approval", "payment_failed", "ready_for_vooy")
+    allowed = ("awaiting_approval", "payment_failed", "ready_for_vooy", "authorized")
     if product_id:
         swapped = _result(pipeline.swap, order_id, allowed, product_id)
         if not swapped["ok"]:
@@ -304,9 +304,23 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
                 "quantity": o["quantity"], "max_amount": o["total"], "ship_to": o.get("ship_to", ""),
                 "recipient": o["caller"],
             }
+            pol = policy.get()
+            card = pol["family_payment_method"]
+            r["checkout"] = {
+                "merchant": pol["test_merchant"], "tool": "checkout_order",
+                "payment_token": o["mandate"]["payment_token"], "expires_at": o["mandate"]["expires_at"],
+                "payment_method": f"{card['label']} {card['brand']} •••• {card['last4']}",
+                "max_amount": o["mandate"]["max_amount"], "single_use": True,
+            }
             r["message"] = (f"구매 승인: {o['product']['name']} ×{o['quantity']}, 최대 {won(o['total'])}"
                             + (f", 배송지 {o['ship_to']}" if o.get("ship_to") else "")
-                            + ". 이제 vooy가 이 범위 안에서 주문·결제하고 report_purchase로 결과를 알려 주세요.")
+                            + f". 쇼핑몰은 {pol['test_merchant']}, 결제수단은 {r['checkout']['payment_method']}입니다. "
+                            "checkout_order(order_id, payment_token)로 바로 결제하세요(토큰은 이 주문에만 1회, 30분 유효). "
+                            "다른 쇼핑몰에서 직접 결제했다면 report_purchase로 결과를 알려 주세요.")
+            if not o.get("ship_to"):
+                r["missing"] = ["ship_to"]
+                r["message"] += (f" 단, {o['caller']} 배송지가 등록돼 있지 않아요. 주문 전에 사용자에게 배송지를 물어 "
+                                 "setup_parent(address=...)로 저장한 뒤 그 주소로 주문하세요.")
         return r
     r = _result(pipeline.approve, order_id, allowed)
     if r["ok"]:
@@ -317,6 +331,29 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
         else:
             r.update(ok=False, message="모든 결제수단이 실패했어요: " + " / ".join(o["attempts"]))
     return r
+
+
+@server.tool(
+    name="checkout_order",
+    title="테스트몰에서 결제",
+    description=(
+        "approve_order로 받은 1회용 payment_token으로 don't call me, Mama 테스트몰에서 주문·결제합니다. "
+        "카드번호나 쇼핑몰 로그인 없이 토큰만 넣으면 됩니다. 결제가 끝나면 주문번호를 돌려주고 엄마께 '주문했어요' 문자가 갑니다."
+    ),
+    annotations=PAY,
+)
+def checkout_order(order_id: str, payment_token: str) -> dict[str, Any]:
+    o = _find_order(order_id, ("authorized",))
+    if o is None:
+        return {"ok": False, "message": f"‘{order_id}’에 해당하는 승인된 주문이 없어요. 먼저 approve_order로 승인을 받아 주세요."}
+    try:
+        o = pipeline.checkout(o["id"], payment_token)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    rc = o["receipt"]
+    return {"ok": True, "order": _brief(o), "order_number": rc["order_number"], "paid_amount": rc["amount"],
+            "message": f"{o['product']['name']} {won(rc['amount'])} 결제 완료 (주문번호 {rc['order_number']}, {rc['method']}), "
+                       f"{o['product']['delivery']}. {o['caller']}께 ‘주문했어요’ 문자를 보냈어요."}
 
 
 @server.tool(
