@@ -275,18 +275,20 @@ def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
     name="report_purchase",
     title="vooy 주문·결제 결과 알리기",
     description=(
-        "approve_order로 승인받은 주문을 vooy가 직접 주문·결제한 뒤 결과를 알려 줍니다. 성공하면 엄마께 '주문했어요' 문자가 갑니다. "
+        "approve_order로 승인받은 주문을 vooy가 직접 주문·결제한 뒤 결과를 알려 줍니다. 성공했으면 엄마께 보낼 문자를 "
+        "message_to_mom에 자식 말투로 적어 주세요(예: '엄마, 휴지 시켜놨어~ 내일 와!'). 서명/제목 없이 1~2문장으로, "
+        "상품·배송 요점은 넣고 주문번호나 결제수단 같은 내부 정보는 빼세요. 비워 두면 서버가 기본 문구로 대신 보냅니다. "
         "success(성공 여부), merchant(쇼핑몰), paid_amount(결제 금액, 원), order_number(주문번호), 실패면 note(사유)를 넣으세요."
     ),
     annotations=WRITE,
 )
 def report_purchase(order_id: str, success: bool = True, merchant: str = "", paid_amount: int = 0,
-                    order_number: str = "", note: str = "") -> dict[str, Any]:
+                    order_number: str = "", note: str = "", message_to_mom: str = "") -> dict[str, Any]:
     o = _find_order(order_id, ("authorized",))
     if o is None:
         return {"ok": False, "message": f"‘{order_id}’에 해당하는 승인된 주문이 없어요. 먼저 approve_order로 승인을 받아 주세요."}
     try:
-        o = pipeline.record_purchase(o["id"], success, merchant, paid_amount, order_number, note)
+        o = pipeline.record_purchase(o["id"], success, merchant, paid_amount, order_number, note, message_to_mom)
     except ValueError as e:
         return {"ok": False, "message": str(e)}
     if o["status"] == "paid":

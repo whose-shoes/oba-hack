@@ -285,7 +285,7 @@ def authorize(oid: str) -> dict:
 
 
 def record_purchase(oid: str, success: bool, merchant: str = "", paid_amount: int = 0,
-                    order_number: str = "", note: str = "") -> dict:
+                    order_number: str = "", note: str = "", message_to_mom: str = "") -> dict:
     """vooy 에이전트가 주문·결제한 결과를 받는다. 성공하면 엄마에게 문자."""
     o = _load(oid)
     if o["status"] != "authorized":
@@ -301,7 +301,8 @@ def record_purchase(oid: str, success: bool, merchant: str = "", paid_amount: in
             _tl(o, "⚠️ 승인 금액보다 크게 결제됨")
             store.log("push_to_child", oid, f"⚠️ 승인 금액({won(o['mandate']['max_amount'])})보다 큰 {won(amount)}이 결제됐어요. 확인해 주세요.")
         store.log("push_to_child", oid, f"✅ vooy가 {o['product']['name']} {won(amount)} 주문·결제를 마쳤어요.")
-        store.log("sms_to_mom", oid, f"{o['caller']}, {o['product']['name']} 주문했어요. {o['product']['delivery']} 예정이에요.")
+        sms = (message_to_mom or "").strip() or f"{o['caller']}, {o['product']['name']} 주문했어요. {o['product']['delivery']} 예정이에요."
+        store.log("sms_to_mom", oid, sms)
     else:
         o["status"] = "payment_failed"
         _tl(o, f"vooy 주문·결제 실패: {note or '사유 없음'}")
