@@ -87,7 +87,8 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
     for t in tasks:
         lines.append(f"📌 구매 외 부탁: {t}")
     if ask:
-        lines.append(f"결제할까요? (예: “응 결제해”, “{josa(ask[0]['request'].get('item') or '그것', '은', '는')} 빼줘”)")
+        name = (ask[0].get("ai_pick") or {}).get("search_keyword") or ask[0]["request"].get("item") or "그것"
+        lines.append(f"결제할까요? (예: “응 사줘”, “{josa(name, '은', '는')} 빼줘”)")
 
     return store.put("digest", call["id"], {
         "id": call["id"],
