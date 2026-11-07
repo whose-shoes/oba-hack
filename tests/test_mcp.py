@@ -46,7 +46,7 @@ def test_tools_are_listed_with_annotations(client):
 
     tools = {t.name: t for t in asyncio.run(run())}
     assert set(tools) == {"get_family_status", "setup_parent", "list_parent_requests", "get_new_parent_requests",
-                          "approve_order", "reject_order", "cancel_order", "update_delegation"}
+                          "approve_order", "report_purchase", "reject_order", "cancel_order", "update_delegation"}
     assert tools["approve_order"].annotations.destructive_hint is True
     assert tools["list_parent_requests"].annotations.read_only_hint is True
     assert "결제해" in tools["approve_order"].description
@@ -138,3 +138,29 @@ def test_update_delegation_ignores_zero_filled_fields(client):
     (r,) = mcp(("update_delegation", {"auto_approve_limit": 50000, "monthly_budget": 0, "max_per_order": 0}))
     assert r["delegation"]["자동결제_한도"] == "50,000원"
     assert r["delegation"]["월_예산"] == "300,000원" and r["delegation"]["1회_최대"] == "100,000원"
+
+
+def test_vooy_agent_executes_payment(client):
+    """결제 실행 주체가 vooy: 서버는 승인만, vooy가 결제 후 report_purchase로 알린다."""
+    c, _ = client
+    c.put("/api/policy", json={"payment_executor": "vooy"})
+    fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 마포구 월드컵로 1"}])
+    family.consent(fam["id"], fam["parents"][0]["id"])
+    c.post("/api/simulate/call-ended", json={"transcript": DAILY})
+    st = {o["request"]["item"]: o for o in c.get("/api/state").json()["orders"]}
+    assert st["휴지"]["status"] == "ready_for_vooy" and st["전기요"]["status"] == "awaiting_approval"
+    assert not [e for e in c.get("/api/state").json()["events"] if e["kind"] == "sms_to_mom" and "주문했어요" in e["text"]]
+
+    early, ok, done, again = mcp(
+        ("report_purchase", {"order_id": "전기요", "merchant": "네이버쇼핑"}),
+        ("approve_order", {"order_id": "전기요"}),
+        ("report_purchase", {"order_id": "전기요", "success": True, "merchant": "네이버쇼핑", "paid_amount": 58000, "order_number": "N-1"}),
+        ("approve_order", {"order_id": st["휴지"]["id"]}),
+    )
+    assert early["ok"] is False
+    assert ok["ok"] and ok["purchase"]["max_amount"] == 59000 and ok["purchase"]["ship_to"] == "서울 마포구 월드컵로 1"
+    assert done["ok"] and "주문·결제 완료" in done["message"]
+    assert again["ok"] and again["purchase"]["product"].startswith("깨끗한나라")
+    order = next(o for o in c.get("/api/state").json()["orders"] if o["request"]["item"] == "전기요")
+    assert order["status"] == "paid" and order["receipt"]["executor"] == "vooy" and order["receipt"]["amount"] == 58000
+    assert any("전기요" in e["text"] and "주문했어요" in e["text"] for e in c.get("/api/state").json()["events"] if e["kind"] == "sms_to_mom")

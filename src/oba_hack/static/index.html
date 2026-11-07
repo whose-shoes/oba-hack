@@ -103,7 +103,7 @@ section h2 .small{color:var(--fg-tertiary);font-weight:500}
 /* status badge (Montage content badge 느낌) */
 .st{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:var(--r-8);font-size:.75rem;font-weight:600;letter-spacing:.0252em;background:var(--surface-secondary);color:var(--fg-secondary)}
 .st.paid,.st.processed{background:var(--surface-positive);color:var(--fg-positive)}
-.st.awaiting_approval,.st.not_found,.st.needs_transcript,.st.extracted,.st.received{background:var(--surface-cautionary);color:var(--fg-cautionary)}
+.st.awaiting_approval,.st.not_found,.st.ready_for_vooy,.st.authorized,.st.needs_transcript,.st.extracted,.st.received{background:var(--surface-cautionary);color:var(--fg-cautionary)}
 .st.blocked,.st.payment_failed{background:var(--surface-negative);color:var(--fg-negative)}
 .st.cancelled,.st.rejected{background:var(--surface-secondary);color:var(--fg-tertiary)}
 
@@ -275,7 +275,7 @@ ul.tl li{margin:2px 0}
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const won = n => (n ?? 0).toLocaleString("ko-KR") + "원";
-const ST = {paid:"결제 완료",awaiting_approval:"승인 대기",blocked:"차단",payment_failed:"결제 실패",cancelled:"취소·환불",rejected:"주문 안 함",not_found:"상품 못 찾음",received:"수신",extracted:"분석 중",processed:"처리 완료",needs_transcript:"전사 필요"};
+const ST = {ready_for_vooy:"vooy 구매 대기",authorized:"vooy 결제 중",paid:"결제 완료",awaiting_approval:"승인 대기",blocked:"차단",payment_failed:"결제 실패",cancelled:"취소·환불",rejected:"주문 안 함",not_found:"상품 못 찾음",received:"수신",extracted:"분석 중",processed:"처리 완료",needs_transcript:"전사 필요"};
 const time = s => s ? s.slice(11,16) : "";
 let policyLoaded = false, vooyLoaded = false, last = "", famKey = null, maxSeq = null, fam = null, toastTimer, unseen = 0;
 

@@ -59,6 +59,7 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
     ex = call.get("extraction") or {}
     paid = [o for o in orders if o["status"] == "paid"]
     ask = [o for o in orders if o["status"] in ("awaiting_approval", "payment_failed")]
+    ready = [o for o in orders if o["status"] == "ready_for_vooy"]
     nf = [o for o in orders if o["status"] == "not_found"]
     blocked = [o for o in orders if o["status"] == "blocked"]
     tasks = ex.get("other_tasks", [])
@@ -69,6 +70,9 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
     if paid:
         lines.append("✅ 늘 사던 거라 주문했어요: " + ", ".join(
             f"{o['product']['name']} {won(o['total'])}" for o in paid) + f" ({label}께 문자 보냄)")
+    if ready:
+        lines.append("🛒 늘 사던 소액이라 바로 주문할게요: " + ", ".join(
+            f"{o['product']['name']} {won(o['total'])}" for o in ready))
     for o in ask:
         lines.append(f"🟡 확인 필요: {o['product']['name']} ×{o['quantity']} {won(o['total'])} — "
                      f"{label} 말씀 “{o['request'].get('evidence', '')}” ({o['decision_reason']})")

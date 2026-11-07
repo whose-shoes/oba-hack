@@ -25,6 +25,7 @@ DEFAULT = {
         {"id": "skpay", "name": "SK pay 포인트 (테스트)"},
     ],
     "simulate_card_failure": False,   # 데모: 카드 결제 실패 → 다음 수단으로 복구
+    "payment_executor": "server",     # "vooy": vooy 에이전트가 직접 주문·결제, 우리 서버는 구매 승인만
 }
 
 

@@ -151,7 +151,11 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
     _tl(order, f"위임 판단: {decision} — {reason}")
 
     if decision == "auto":
-        _pay(order)
+        if policy.get().get("payment_executor") == "vooy":
+            order["status"] = "ready_for_vooy"
+            _tl(order, "자동결제 범위 → vooy 에이전트가 구매 승인 후 바로 주문·결제")
+        else:
+            _pay(order)
     elif decision == "ask":
         order["status"] = "awaiting_approval"
         store.log("push_to_child", oid,
@@ -194,7 +198,7 @@ def _pay(order: dict) -> bool:
 
 def _report_to_mom(call: dict, orders: list[dict]) -> None:
     paid = [o for o in orders if o["status"] == "paid"]
-    pending = [o for o in orders if o["status"] in ("awaiting_approval", "not_found")]
+    pending = [o for o in orders if o["status"] in ("awaiting_approval", "not_found", "ready_for_vooy")]
     if not paid and not pending:
         return
     parts = []
@@ -239,7 +243,7 @@ def reject(oid: str) -> dict:
 
 def swap(oid: str, product_id: str) -> dict:
     o = _load(oid)
-    if o["status"] not in ("awaiting_approval", "payment_failed"):
+    if o["status"] not in ("awaiting_approval", "payment_failed", "ready_for_vooy"):
         raise ValueError(f"상품을 바꿀 수 없는 상태: {o['status']}")
     alt = next((a for a in o["alternatives"] if a["id"] == product_id), None)
     if alt is None:
@@ -261,4 +265,46 @@ def cancel(oid: str) -> dict:
     store.put("order", oid, o)
     store.log("push_to_child", oid, f"↩️ {o['product']['name']} 취소하고 {won(rf['amount'])} 환불했어요.")
     store.log("sms_to_mom", oid, f"{o['caller']}, {o['product']['name']} 주문은 취소했어요. 다른 걸로 다시 알아볼게요.")
+    return o
+
+
+
+# ---------- vooy 에이전트가 결제를 실행하는 경우 ----------
+
+def authorize(oid: str) -> dict:
+    """구매 승인(위임 증서) 발급. 결제는 vooy가 하고, 우리 서버는 한도·차단을 검사해 승인만 한다."""
+    o = _load(oid)
+    if o["status"] not in ("ready_for_vooy", "awaiting_approval", "payment_failed"):
+        raise ValueError(f"승인할 수 없는 상태: {o['status']}")
+    mandate = {"id": f"m-{uuid.uuid4().hex[:10]}", "max_amount": o["total"], "issued_at": now()}
+    o.update(status="authorized", mandate=mandate)
+    _tl(o, f"구매 승인 {mandate['id']} 발급 (최대 {won(o['total'])}) → vooy 에이전트가 주문·결제")
+    store.put("order", oid, o)
+    store.log("push_to_child", oid, f"🛒 {o['product']['name']} 구매를 승인했어요. vooy가 주문·결제를 진행해요.")
+    return o
+
+
+def record_purchase(oid: str, success: bool, merchant: str = "", paid_amount: int = 0,
+                    order_number: str = "", note: str = "") -> dict:
+    """vooy 에이전트가 주문·결제한 결과를 받는다. 성공하면 엄마에게 문자."""
+    o = _load(oid)
+    if o["status"] != "authorized":
+        raise ValueError("먼저 approve_order로 구매 승인을 받아야 해요.")
+    amount = int(paid_amount or o["total"])
+    if success:
+        o.update(status="paid", paid_at=now(), receipt={
+            "tx_id": order_number or f"vooy_{uuid.uuid4().hex[:10]}",
+            "method": f"vooy 에이전트 결제 · {merchant or '쇼핑몰'}", "amount": amount,
+            "approved_at": now(), "executor": "vooy"})
+        _tl(o, f"vooy가 주문·결제 완료: {merchant or '쇼핑몰'} {won(amount)} (주문번호 {order_number or '-'})")
+        if amount > o["mandate"]["max_amount"] * 1.1:
+            _tl(o, "⚠️ 승인 금액보다 크게 결제됨")
+            store.log("push_to_child", oid, f"⚠️ 승인 금액({won(o['mandate']['max_amount'])})보다 큰 {won(amount)}이 결제됐어요. 확인해 주세요.")
+        store.log("push_to_child", oid, f"✅ vooy가 {o['product']['name']} {won(amount)} 주문·결제를 마쳤어요.")
+        store.log("sms_to_mom", oid, f"{o['caller']}, {o['product']['name']} 주문했어요. {o['product']['delivery']} 예정이에요.")
+    else:
+        o["status"] = "payment_failed"
+        _tl(o, f"vooy 주문·결제 실패: {note or '사유 없음'}")
+        store.log("push_to_child", oid, f"❌ vooy가 {o['product']['name']} 결제에 실패했어요: {note or '사유 없음'}")
+    store.put("order", oid, o)
     return o

@@ -155,6 +155,7 @@ def list_parent_requests(include_done: bool = False) -> dict[str, Any]:
     orders = store.all_docs("order")
     today = datetime.now().strftime("%Y-%m-%d")
     ask = [o for o in orders if o["status"] in ("awaiting_approval", "payment_failed", "not_found")]
+    ready = [o for o in orders if o["status"] in ("ready_for_vooy", "authorized")]
     recent = [o for o in orders if include_done or o["created_at"].startswith(today)]
     paid = [o for o in recent if o["status"] == "paid"]
     blocked = [o for o in recent if o["status"] == "blocked"]
@@ -168,12 +169,15 @@ def list_parent_requests(include_done: bool = False) -> dict[str, Any]:
         else:
             lines.append(f"🟡 {o['product']['name']} ×{o['quantity']} {won(o['total'])} — "
                          f"{o['caller']} 말씀 “{o['request'].get('evidence', '')}” ({o['decision_reason']})")
+    lines += [f"🛒 바로 주문할 것: {o['product']['name']} {won(o['total'])}" + (" (승인됨, 결제 결과 대기)" if o["status"] == "authorized" else "")
+              for o in ready]
     lines += [f"✅ 주문함: {o['product']['name']} {won(o['total'])}" for o in paid]
     lines += [f"🚫 결제 안 함: {o['product']['name']} — {o['decision_reason']}" for o in blocked]
     lines += [f"📌 구매 외 부탁: {t}" for t in tasks]
     return {
         "message": "\n".join(lines) if lines else "지금은 엄마 부탁이 없어요.",
         "needs_approval": [_brief(o) for o in ask],
+        "ready_to_buy": [_brief(o) for o in ready],
         "ordered": [_brief(o) for o in paid],
         "blocked": [_brief(o) for o in blocked],
         "closed": [_brief(o) for o in done],
@@ -220,23 +224,43 @@ def _result(fn, ref: str, statuses: tuple[str, ...], *args) -> dict[str, Any]:
         return {"ok": False, "order": _brief(o), "message": f"처리할 수 없어요: {e} ({o.get('decision_reason', '')})"}
 
 
+def _vooy_pays() -> bool:
+    return policy.get().get("payment_executor") == "vooy"
+
+
 @server.tool(
     name="approve_order",
-    title="주문 승인·결제",
+    title="구매 승인 (결제 전 필수)",
     description=(
-        "확인이 필요한 주문을 승인하고 테스트 결제합니다. 사용자가 상품·수량·금액을 본 뒤 '응 결제해', '그거 사줘', "
-        "'주문해'처럼 분명히 동의했을 때만 부르세요. order_id(또는 상품 이름)를 넣고, 대안 상품으로 바꾸려면 product_id를 넣으세요. "
-        "결제가 끝나면 엄마께 '주문했어요' 문자가 갑니다. 차단된 주문은 서버가 거절합니다."
+        "엄마 부탁 주문을 승인합니다. 사용자가 상품·수량·금액을 본 뒤 '응 결제해', '그거 사줘', '주문해'처럼 분명히 동의했을 때 부르세요. "
+        "🛒(늘 사던 소액, 자동결제 범위) 주문은 확인 없이 바로 불러도 됩니다. order_id(또는 상품 이름)를 넣고, 대안 상품으로 바꾸려면 product_id를 넣으세요. "
+        "승인되면 구매 정보(상품·수량·최대 금액·배송지)를 돌려줍니다. 그 범위 안에서 vooy가 직접 주문·결제하고, 끝나면 report_purchase로 결과를 알려 주세요. "
+        "상품권·사칭 의심 등 차단된 주문은 서버가 승인하지 않습니다."
     ),
     annotations=PAY,
 )
-def approve_order(order_id: str, product_id: str | None = None) -> dict[str, Any]:
+def approve_order(order_id: str, product_id: str = "") -> dict[str, Any]:
+    allowed = ("awaiting_approval", "payment_failed", "ready_for_vooy")
     if product_id:
-        swapped = _result(pipeline.swap, order_id, ("awaiting_approval", "payment_failed"), product_id)
+        swapped = _result(pipeline.swap, order_id, allowed, product_id)
         if not swapped["ok"]:
             return swapped
         order_id = swapped["order"]["order_id"]
-    r = _result(pipeline.approve, order_id, ("awaiting_approval", "payment_failed"))
+    if _vooy_pays():
+        r = _result(pipeline.authorize, order_id, allowed)
+        if r["ok"]:
+            o = store.get("order", r["order"]["order_id"])
+            r["purchase"] = {
+                "order_id": o["id"], "mandate_id": o["mandate"]["id"], "product": o["product"]["name"],
+                "search_keywords": f"{o['request'].get('item', '')} {o['request'].get('detail', '')}".strip(),
+                "quantity": o["quantity"], "max_amount": o["total"], "ship_to": o.get("ship_to", ""),
+                "recipient": o["caller"],
+            }
+            r["message"] = (f"구매 승인: {o['product']['name']} ×{o['quantity']}, 최대 {won(o['total'])}"
+                            + (f", 배송지 {o['ship_to']}" if o.get("ship_to") else "")
+                            + ". 이제 vooy가 이 범위 안에서 주문·결제하고 report_purchase로 결과를 알려 주세요.")
+        return r
+    r = _result(pipeline.approve, order_id, allowed)
     if r["ok"]:
         o = store.get("order", r["order"]["order_id"])
         if o["status"] == "paid":
@@ -245,6 +269,30 @@ def approve_order(order_id: str, product_id: str | None = None) -> dict[str, Any
         else:
             r.update(ok=False, message="모든 결제수단이 실패했어요: " + " / ".join(o["attempts"]))
     return r
+
+
+@server.tool(
+    name="report_purchase",
+    title="vooy 주문·결제 결과 알리기",
+    description=(
+        "approve_order로 승인받은 주문을 vooy가 직접 주문·결제한 뒤 결과를 알려 줍니다. 성공하면 엄마께 '주문했어요' 문자가 갑니다. "
+        "success(성공 여부), merchant(쇼핑몰), paid_amount(결제 금액, 원), order_number(주문번호), 실패면 note(사유)를 넣으세요."
+    ),
+    annotations=WRITE,
+)
+def report_purchase(order_id: str, success: bool = True, merchant: str = "", paid_amount: int = 0,
+                    order_number: str = "", note: str = "") -> dict[str, Any]:
+    o = _find_order(order_id, ("authorized",))
+    if o is None:
+        return {"ok": False, "message": f"‘{order_id}’에 해당하는 승인된 주문이 없어요. 먼저 approve_order로 승인을 받아 주세요."}
+    try:
+        o = pipeline.record_purchase(o["id"], success, merchant, paid_amount, order_number, note)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    if o["status"] == "paid":
+        return {"ok": True, "order": _brief(o),
+                "message": f"{o['product']['name']} {won(o['receipt']['amount'])} 주문·결제 완료를 기록했어요. {o['caller']}께 ‘주문했어요’ 문자를 보냈어요."}
+    return {"ok": True, "order": _brief(o), "message": "결제 실패를 기록했어요. 다른 상품이나 결제수단으로 다시 시도할 수 있어요."}
 
 
 @server.tool(
