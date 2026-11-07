@@ -42,7 +42,7 @@ async def lifespan(_: FastAPI):
             task.cancel()
 
 
-app = FastAPI(title="오바란 — 엄마 전화 한 통이면 끝", lifespan=lifespan)
+app = FastAPI(title="don't call me, Mama", lifespan=lifespan)
 app.include_router(ingest.router)
 app.include_router(telco.router)
 app.router.routes.extend(mcp_server.http_app.routes)

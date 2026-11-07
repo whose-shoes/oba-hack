@@ -20,14 +20,14 @@ from mcp.types import ToolAnnotations
 from . import family, notify, pipeline, policy, store
 from .config import josa
 
-INSTRUCTIONS = """오바란: 엄마(부모님)와 자녀가 통화를 마치면 엄마의 부탁을 정리해 주문까지 돕는 서비스입니다.
+INSTRUCTIONS = """don't call me, Mama: 엄마(부모님)와 자녀가 통화를 마치면 엄마의 부탁을 정리해 주문까지 돕는 서비스입니다.
 - 처음 연결했거나 상태가 궁금하면 get_family_status를 먼저 부르세요. 등록 전이면 사용자에게 엄마 호칭·엄마 전화번호·
   내(사용자) 전화번호·배송지·엄마의 선호/건강 메모를 대화로 물어 setup_parent로 등록하세요. 한 번에 다 묻지 말고 필요한 것부터.
 - 결제(approve_order)와 취소(cancel_order)는 반드시 상품·수량·금액을 보여 주고 사용자가 분명히 동의한 뒤에만 부르세요.
 - 🚫(결제 안 함) 항목은 결제를 제안하지 말고 엄마께 직접 확인하라고 안내하세요.
 - 결과를 전할 때 엄마께 보낸 문자 내용도 함께 알려 주세요. 결제는 모두 테스트 결제입니다."""
 
-server = MCPServer(name="oba-family-errands", title="오바란 · 엄마 부탁 대신 처리", instructions=INSTRUCTIONS)
+server = MCPServer(name="dont-call-me-mama", title="don't call me, Mama · 엄마 부탁 대신 처리", instructions=INSTRUCTIONS)
 
 READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False)

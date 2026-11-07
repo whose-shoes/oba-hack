@@ -91,7 +91,7 @@ def register(child_name: str, child_phone: str, parents: list[dict]) -> dict:
 def _ask_consent(fam: dict, p: dict) -> None:
     name = fam["child_name"]
     store.log("sms_to_mom", fam["id"],
-              f"{p['label']}, {josa(name, '이', '가')} 통화 속 부탁을 대신 주문해 드리는 ‘오바란’에 "
+              f"{p['label']}, {josa(name, '이', '가')} 통화 속 부탁을 대신 주문해 드리는 ‘don't call me, Mama’에 "
               f"{p['label']} 번호를 등록했어요. 동의하시면 ‘예’라고 답장해 주세요.")
     store.log("push_to_child", fam["id"], f"{p['label']}({mask_phone(p['phone'])})께 동의 요청 문자를 보냈어요.")
 

@@ -255,7 +255,7 @@ def send_test() -> dict:
     if not s["push_url"]:
         return {"ok": False, "result": "웹훅 주소가 없어요."}
     sample = {"id": f"test-{int(time.time())}", "parent": "엄마", "created_at": now(),
-              "text": "[테스트] 오바란 웹훅 연결 확인 메시지예요.", "items": [], "other_tasks": []}
+              "text": "[테스트] don't call me, Mama 웹훅 연결 확인 메시지예요.", "items": [], "other_tasks": []}
     ok, info = _post(_payload(sample, s, event="test"), s, sample["id"])
     store.log("vooy_sent" if ok else "vooy_retry", "test", f"vooy 웹훅 테스트 발송: {'성공' if ok else '실패'} ({info})")
     return {"ok": ok, "result": info}
