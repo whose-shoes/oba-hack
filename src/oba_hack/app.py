@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import catalog, ingest, llm, pipeline, policy, store
+from . import catalog, family, ingest, llm, pipeline, policy, store, telco
 from .config import data_dir
 
 STATIC = Path(__file__).parent / "static"
@@ -16,6 +17,7 @@ SAMPLES = Path(__file__).parent / "samples"
 
 app = FastAPI(title="오바란 — 엄마 전화 한 통이면 끝")
 app.include_router(ingest.router)
+app.include_router(telco.router)
 
 
 @app.get("/health")
@@ -37,6 +39,7 @@ def state() -> dict:
         "policy": policy.get(),
         "spent_this_month": policy.spent_this_month(),
         "llm": llm.provider_label(),
+        "family": family.public(family.current()),
         "history": [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")}
                     for h in catalog.history("엄마")],
     }
@@ -128,7 +131,76 @@ def reset() -> dict:
     """데모 초기화: 통화·주문·이벤트 삭제 (정책은 유지)."""
     db = store._db()
     with store._lock:
-        db.execute("delete from docs where kind in ('call', 'order')")
+        db.execute("delete from docs where kind in ('call', 'order', 'telco_call')")
         db.execute("delete from events")
         db.commit()
     return {"ok": True}
+
+
+# ---------- 가입·연동 ----------
+
+class ParentIn(BaseModel):
+    label: str = "엄마"
+    phone: str
+    address: str = ""
+
+
+class SignupIn(BaseModel):
+    child_name: str
+    child_phone: str
+    parents: list[ParentIn]
+
+
+@app.post("/api/families", status_code=201)
+def signup(body: SignupIn) -> dict:
+    try:
+        fam = family.register(body.child_name, body.child_phone, [p.model_dump() for p in body.parents])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return family.public(fam)
+
+
+class ConsentIn(BaseModel):
+    granted: bool = True
+
+
+@app.post("/api/families/{fid}/parents/{pid}/consent")
+def parent_consent(fid: str, pid: str, body: ConsentIn) -> dict:
+    """엄마의 '예' 답장 (데모에서는 버튼으로 시뮬레이션)."""
+    try:
+        return family.public(family.consent(fid, pid, body.granted))
+    except KeyError:
+        raise HTTPException(404)
+
+
+@app.delete("/api/families/{fid}")
+def leave(fid: str) -> dict:
+    family.delete(fid)
+    return {"ok": True}
+
+
+# ---------- 통화 시뮬레이터 (SKT 망 연동 모의) ----------
+
+class SimCall(BaseModel):
+    transcript: str
+    who: str = "parent"          # parent | unknown
+    direction: str = "incoming"  # incoming(엄마→나) | outgoing(나→엄마)
+    unknown_number: str = "010-9876-5432"
+
+
+@app.post("/api/simulate/call-ended", status_code=202)
+def simulate_call(body: SimCall, background: BackgroundTasks) -> dict:
+    """에이닷이 통화 종료 웹훅을 보낸 것처럼 처리한다. 실제 웹훅과 같은 함수(telco.receive)를 쓴다."""
+    fam = family.current()
+    if fam is None:
+        raise HTTPException(409, "먼저 가입하고 부모님 번호를 등록해 주세요.")
+    if not body.transcript.strip():
+        raise HTTPException(400, "empty transcript")
+    other = fam["parents"][0]["phone"] if body.who == "parent" else body.unknown_number
+    a, b = (other, fam["child_phone"]) if body.direction == "incoming" else (fam["child_phone"], other)
+    ev = telco.CallEnded(call_id=f"sim-{uuid.uuid4().hex[:10]}", from_number=a, to_number=b,
+                         transcript=body.transcript)
+    result, call_id = telco.receive(ev, source="SKT 망 연동 모의")
+    if call_id:
+        background.add_task(pipeline.process_call, call_id)
+    return result

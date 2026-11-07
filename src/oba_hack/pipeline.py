@@ -67,9 +67,10 @@ def transcript_from_files(call_dir: Path, files: list[dict]) -> tuple[str | None
 
 # ---------- 2. 통화 등록 ----------
 
-def register_call(call_id: str, files: list[dict], *, caller: str, source: str, transcript: str | None = None) -> dict:
+def register_call(call_id: str, files: list[dict], *, caller: str, source: str, transcript: str | None = None,
+                  family_id: str | None = None) -> dict:
     call = {
-        "id": call_id, "caller": caller, "source": source, "received_at": now(),
+        "id": call_id, "caller": caller, "source": source, "received_at": now(), "family_id": family_id,
         "files": files, "transcript": transcript, "status": "received", "order_ids": [],
     }
     store.put("call", call_id, call)
@@ -130,7 +131,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
                      decision="ask", decision_reason="카탈로그에서 맞는 상품을 못 찾았어요.")
         _tl(order, f"‘{req.get('item')}’ 상품을 찾지 못함")
         store.put("order", oid, order)
-        store.log("push_to_child", oid, f"엄마가 {josa(req.get('item') or '물건', '을', '를')} 부탁하셨는데 맞는 상품을 못 찾았어요.")
+        store.log("push_to_child", oid, f"{josa(caller, '이', '가')} {josa(req.get('item') or '물건', '을', '를')} 부탁하셨는데 맞는 상품을 못 찾았어요.")
         return order
 
     pick, alts = candidates[0], candidates[1:4]
@@ -142,7 +143,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
         caller=caller, product=pick, total=total, previously_bought=bought, scam_signals=scam_signals,
     )
     if budget and total > int(budget) and decision == "auto":
-        decision, reason = "ask", f"엄마가 말한 예산 {won(int(budget))}을 넘어요."
+        decision, reason = "ask", f"{josa(caller, '이', '가')} 말한 예산 {won(int(budget))}을 넘어요."
     order.update(product=pick, alternatives=alts, quantity=qty, total=total,
                  decision=decision, decision_reason=reason)
     _tl(order, f"선택: {pick['name']} x{qty} = {won(total)} ({'; '.join(pick['reasons'])})")
@@ -153,7 +154,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
     elif decision == "ask":
         order["status"] = "awaiting_approval"
         store.log("push_to_child", oid,
-                  f"엄마가 “{req.get('evidence', '')}”라고 하셨어요. {pick['name']} x{qty} {won(total)} 결제할까요? ({reason})")
+                  f"{josa(caller, '이', '가')} “{req.get('evidence', '')}”라고 하셨어요. {pick['name']} x{qty} {won(total)} 결제할까요? ({reason})")
     else:
         order["status"] = "blocked"
         store.log("push_to_child", oid, f"🚫 결제 차단: {pick['name']} — {reason}")
@@ -190,7 +191,7 @@ def _report_to_mom(call: dict, orders: list[dict]) -> None:
     parts = []
     if paid:
         names = ", ".join(f"{o['product']['name']}" for o in paid)
-        parts.append(f"엄마, 말씀하신 {names} 주문했어요. {paid[0]['product']['delivery']} 예정이에요.")
+        parts.append(f"{call['caller']}, 말씀하신 {names} 주문했어요. {paid[0]['product']['delivery']} 예정이에요.")
     if pending:
         parts.append(f"{josa(', '.join(o['request'].get('item', '') for o in pending), '은', '는')} 제가 확인하고 주문할게요.")
     store.log("sms_to_mom", call["id"], " ".join(parts))
@@ -211,7 +212,7 @@ def approve(oid: str) -> dict:
         raise ValueError(f"승인할 수 없는 상태: {o['status']}")
     _tl(o, "자식이 승인")
     if _pay(o):
-        store.log("sms_to_mom", o["id"], f"엄마, {o['product']['name']} 주문했어요. {o['product']['delivery']} 예정이에요.")
+        store.log("sms_to_mom", o["id"], f"{o['caller']}, {o['product']['name']} 주문했어요. {o['product']['delivery']} 예정이에요.")
     store.put("order", oid, o)
     return o
 
@@ -250,5 +251,5 @@ def cancel(oid: str) -> dict:
     _tl(o, f"주문 취소·테스트 환불 {won(rf['amount'])} ({rf['refund_id']})")
     store.put("order", oid, o)
     store.log("push_to_child", oid, f"↩️ {o['product']['name']} 취소하고 {won(rf['amount'])} 환불했어요.")
-    store.log("sms_to_mom", oid, f"엄마, {o['product']['name']} 주문은 취소했어요. 다른 걸로 다시 알아볼게요.")
+    store.log("sms_to_mom", oid, f"{o['caller']}, {o['product']['name']} 주문은 취소했어요. 다른 걸로 다시 알아볼게요.")
     return o

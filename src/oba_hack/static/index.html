@@ -37,6 +37,13 @@ ul.tl{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--sub)}
 .policy input[type=number]{width:120px;text-align:right}.policy input[type=checkbox]{width:auto}
 .empty{color:var(--sub);font-size:13px;padding:6px 0}
 pre{white-space:pre-wrap;font:13px/1.5 inherit;margin:6px 0;background:var(--bg);padding:8px;border-radius:8px}
+select{font:inherit;border:1px solid var(--line);border-radius:9px;padding:6px 8px;background:var(--bg);color:var(--ink);max-width:100%}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.form label{font-size:13px;color:var(--sub);display:flex;flex-direction:column;gap:4px}
+.form .wide{grid-column:1/-1}
+#onboard.done{padding:10px 14px}
+#toast{position:fixed;left:50%;top:14px;transform:translateX(-50%) translateY(calc(-100% - 24px));opacity:0;pointer-events:none;transition:transform .35s,opacity .35s;z-index:9;max-width:min(92vw,460px);background:var(--ink);color:var(--bg);border-radius:14px;padding:10px 14px;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+#toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+code{font-size:12px;background:var(--chip);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -44,8 +51,10 @@ pre{white-space:pre-wrap;font:13px/1.5 inherit;margin:6px 0;background:var(--bg)
   <h1>오바<span>란</span> <small class="sub" style="font-size:14px;font-weight:400">엄마 전화 한 통이면, 장보기는 끝</small></h1>
   <div class="badges"><span class="badge" id="llm"></span><span class="badge" id="spent"></span><span class="badge">결제는 모두 테스트 결제</span></div>
 </header>
+<div id="toast"></div>
 <main>
   <div>
+    <section id="onboard"></section>
     <section>
       <h2>확인이 필요해요</h2>
       <div id="asks"></div>
@@ -69,14 +78,18 @@ pre{white-space:pre-wrap;font:13px/1.5 inherit;margin:6px 0;background:var(--bg)
       <div id="push" class="feed"></div>
     </section>
     <section>
-      <h2>데모: 통화 넣기</h2>
+      <h2>통화 시뮬레이터 <span class="small">(SKT 망 연동 모의: 통화가 끝나면 에이닷이 웹훅 호출)</span></h2>
       <div class="row" id="samples" style="margin-bottom:8px"></div>
-      <input id="caller" value="엄마" placeholder="발신자" style="margin-bottom:6px">
+      <div class="row" style="margin-bottom:6px">
+        <select id="who"><option value="parent">엄마 번호</option><option value="unknown">모르는 번호 (010-9876-5432)</option></select>
+        <select id="dir"><option value="incoming">상대가 걸었어요</option><option value="outgoing">내가 걸었어요</option></select>
+      </div>
       <textarea id="transcript" placeholder="엄마: 휴지가 다 떨어졌어. 하나 시켜줘."></textarea>
       <div class="row between" style="margin-top:8px">
         <button id="reset">초기화</button>
-        <button class="primary" id="send">통화 보내기</button>
+        <button class="primary" id="send">📞 통화 종료</button>
       </div>
+      <div class="sub small" id="simmsg" style="margin-top:6px"></div>
     </section>
     <section class="policy">
       <h2>맡기는 범위 (위임 정책)</h2>
@@ -97,7 +110,45 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const won = n => (n ?? 0).toLocaleString("ko-KR") + "원";
 const ST = {paid:"결제 완료",awaiting_approval:"승인 대기",blocked:"차단",payment_failed:"결제 실패",cancelled:"취소·환불",rejected:"주문 안 함",not_found:"상품 못 찾음",received:"수신",extracted:"분석 중",processed:"처리 완료",needs_transcript:"전사 필요"};
 const time = s => s ? s.slice(11,16) : "";
-let policyLoaded = false, last = "";
+let policyLoaded = false, last = "", famKey = null, maxSeq = null, fam = null, toastTimer;
+
+function toast(text) {
+  const t = $("#toast"); t.textContent = text; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 4500);
+}
+
+function renderOnboard(f) {
+  const el = $("#onboard"); el.classList.toggle("done", false);
+  const mom = f?.parents?.[0];
+  $("#who").options[0].textContent = mom ? `${mom.label} 번호 (${mom.phone})` : "엄마 번호";
+  const ready = mom?.consent === "granted";
+  $("#send").disabled = !ready;
+  $("#simmsg").textContent = ready ? "" : "가입하고 엄마 동의를 받으면 시뮬레이션할 수 있어요.";
+  if (!f) {
+    el.innerHTML = `<h2>시작하기: 엄마 번호만 등록하면 끝</h2>
+      <div class="sub">엄마와의 통화가 끝나면 그 통화만 처리해요. 다른 통화는 저장하지 않아요.</div>
+      <div class="form">
+        <label>내 이름<input id="s_name" value="지누"></label>
+        <label>내 번호<input id="s_phone" value="010-1234-5678" inputmode="tel"></label>
+        <label>부모님 호칭<input id="s_label" value="엄마"></label>
+        <label>부모님 번호<input id="s_mphone" value="010-2345-6789" inputmode="tel"></label>
+        <label class="wide">배송지<input id="s_addr" value="서울시 마포구 월드컵로 1 (엄마 집)"></label>
+      </div>
+      <div class="row between"><span class="small" id="s_err" style="color:var(--bad)"></span><button class="primary" id="signup">가입하고 엄마 연동하기</button></div>`;
+  } else if (!ready) {
+    el.innerHTML = `<h2>${esc(mom.label)} 동의를 기다리는 중</h2>
+      <div>${esc(mom.label)}(${esc(mom.phone)})께 동의 요청 문자를 보냈어요. ‘예’라고 답장하시면 연동이 끝나요.</div>
+      <div class="row" style="margin-top:10px"><button class="primary" data-consent="${f.id}|${mom.id}">${esc(mom.label)}가 ‘예’라고 답장 (시뮬레이션)</button><button data-leave="${f.id}">처음부터</button></div>`;
+  } else {
+    el.classList.add("done");
+    el.innerHTML = `<div class="row between"><span>✅ <b>${esc(mom.label)}</b>(${esc(mom.phone)})와 연동됨 · 통화가 끝나면 알아서 처리해요</span></div>
+      <details><summary>지금 바로 쓰는 아이폰 연결 (에이닷 공유 1탭 · 엄마 문자 자동화)</summary>
+        <div class="sub small" style="margin-top:6px">단축어 ‘URL 콘텐츠 가져오기’ → <code>POST /v1/calls</code>, 헤더 <code>Authorization: Bearer ${esc(f.upload_token)}</code>.
+        문자 자동화는 양식에 <code>caller_number</code> = 보낸 사람을 넣으면 ${esc(mom.label)} 번호가 아닐 때 서버가 버려요. 자세한 설정은 README.</div>
+        <div class="row" style="margin-top:6px"><button data-leave="${f.id}">연동 해제</button></div>
+      </details>`;
+  }
+}
 
 async function api(path, opts={}) {
   const r = await fetch(path, {headers:{"Content-Type":"application/json"}, ...opts});
@@ -156,6 +207,14 @@ function render(s) {
 async function refresh() {
   try {
     const s = await api("/api/state"); const key = JSON.stringify([s.orders, s.calls, s.events.length, s.spent_this_month]);
+    const fk = JSON.stringify(s.family);
+    if (fk !== famKey) { famKey = fk; fam = s.family; renderOnboard(s.family); }
+    const top = s.events.length ? s.events[0].seq : 0;
+    if (maxSeq !== null) {
+      const fresh = s.events.filter(e => e.seq > maxSeq && ["push_to_child","filter"].includes(e.kind));
+      if (fresh.length) toast(fresh[0].text + (fresh.length > 1 ? `  외 ${fresh.length - 1}건` : ""));
+    }
+    maxSeq = top;
     if (key !== last && !document.activeElement?.dataset?.tr) { last = key; render(s); }
   } catch (e) {}
 }
@@ -166,15 +225,31 @@ document.addEventListener("click", async e => {
     if (t.dataset.act) { t.disabled = true; await api(`/api/orders/${t.dataset.id}/${t.dataset.act}`, {method:"POST"}); }
     else if (t.dataset.swap) { await api(`/api/orders/${t.dataset.swap}/swap`, {method:"POST", body:JSON.stringify({product_id:t.dataset.pid})}); }
     else if (t.dataset.trbtn) { const v = document.querySelector(`[data-tr="${t.dataset.trbtn}"]`).value; await api(`/api/calls/${t.dataset.trbtn}/transcript`, {method:"POST", body:JSON.stringify({text:v})}); }
-    else if (t.dataset.sample) { const s = samples.find(x => x.id === t.dataset.sample); $("#transcript").value = s.transcript; $("#caller").value = s.caller; return; }
+    else if (t.dataset.sample) { const s = samples.find(x => x.id === t.dataset.sample); $("#transcript").value = s.transcript; $("#who").value = s.caller === "엄마" ? "parent" : "unknown"; return; }
+    else if (t.id === "signup") {
+      try {
+        await api("/api/families", {method:"POST", body:JSON.stringify({child_name:$("#s_name").value, child_phone:$("#s_phone").value,
+          parents:[{label:$("#s_label").value || "엄마", phone:$("#s_mphone").value, address:$("#s_addr").value}]})});
+      } catch (err) {
+        let d; try { d = JSON.parse(err.message).detail; } catch (_) {}
+        $("#s_err").textContent = typeof d === "string" ? d : "가입 정보를 확인해 주세요."; return;
+      }
+    }
+    else if (t.dataset.consent) { const [f, p] = t.dataset.consent.split("|"); await api(`/api/families/${f}/parents/${p}/consent`, {method:"POST", body:JSON.stringify({granted:true})}); }
+    else if (t.dataset.leave) { await api(`/api/families/${t.dataset.leave}`, {method:"DELETE"}); }
     else return;
   } catch (err) { console.log(err); }
-  last = ""; refresh();
+  last = ""; famKey = null; refresh();
 });
 $("#send").onclick = async () => {
   if (!$("#transcript").value.trim()) return;
-  await api("/api/calls", {method:"POST", body:JSON.stringify({transcript:$("#transcript").value, caller:$("#caller").value})});
-  $("#transcript").value = ""; last = ""; setTimeout(refresh, 300);
+  $("#send").disabled = true;
+  try {
+    const r = await api("/api/simulate/call-ended", {method:"POST", body:JSON.stringify({transcript:$("#transcript").value, who:$("#who").value, direction:$("#dir").value})});
+    $("#simmsg").textContent = r.accepted ? "통화 종료 → 에이닷 웹훅 수신 → 처리 중…" : "🔒 등록되지 않은 번호와의 통화라 저장하지 않고 버렸어요.";
+    if (r.accepted) $("#transcript").value = "";
+  } catch (err) { $("#simmsg").textContent = "실패: " + err.message; }
+  $("#send").disabled = false; last = ""; setTimeout(refresh, 300);
 };
 $("#reset").onclick = async () => { await api("/api/reset", {method:"POST"}); last = ""; refresh(); };
 const list = v => v.split(",").map(x => x.trim()).filter(Boolean);

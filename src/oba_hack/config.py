@@ -27,3 +27,8 @@ def josa(word: str, with_batchim: str, without: str) -> str:
     if "가" <= last <= "힣":
         return word + (with_batchim if (ord(last) - 0xAC00) % 28 else without)
     return f"{word}{with_batchim}({without})"
+
+
+def telco_token() -> str:
+    """통신사(SKT) 연동 웹훅 인증 토큰."""
+    return os.environ.get("OBA_TELCO_TOKEN", "")
