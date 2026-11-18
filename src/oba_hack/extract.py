@@ -145,9 +145,11 @@ def extract(transcript: str, context: str = "", todos: list[str] | None = None) 
     if result and isinstance(result.get("requests"), list):
         result.setdefault("other_tasks", [])
         result.setdefault("scam_signals", [])
-        # LLM이 놓치더라도 사칭 정황은 규칙으로 한 번 더 잡는다
+        # LLM이 놓치더라도 사칭 정황은 규칙으로 한 번 더 잡는다. 표시는 짧은 키워드 위주로 (문장 통째는 빼고)
         rule_scam = [p for p in SCAM_PATTERNS if p in transcript]
-        result["scam_signals"] = sorted(set(result["scam_signals"]) | set(rule_scam))
+        extra = [str(x).strip() for x in result["scam_signals"] if str(x).strip()
+                 and not any(p in str(x) for p in rule_scam) and len(str(x).strip()) <= 20]
+        result["scam_signals"] = rule_scam + list(dict.fromkeys(extra))[:3]
         for r in result["requests"]:
             r["quantity"] = int(r.get("quantity") or 1)
             r.setdefault("detail", "")

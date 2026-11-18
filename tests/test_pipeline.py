@@ -98,6 +98,16 @@ def test_llm_result_is_used_and_scam_rules_still_apply(monkeypatch):
     assert "상품권" in r["scam_signals"]
 
 
+def test_scam_signals_stay_short(monkeypatch):
+    from oba_hack import llm
+
+    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0, **kw: {
+        "summary": "", "requests": [], "scam_signals": ["폰이 고장나서 친구 폰으로 전화했어.", "급한 송금 요구", "번호 전달"]})
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
+    r, _ = extract.extract("엄마: 폰이 고장나서 친구 폰으로 전화했어. 상품권 사서 번호 보내줘.")
+    assert r["scam_signals"] == ["상품권", "폰이 고장", "급한 송금 요구", "번호 전달"]
+
+
 def test_llm_failure_falls_back_to_rules(monkeypatch):
     import httpx
 
