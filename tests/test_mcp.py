@@ -53,7 +53,7 @@ def test_tools_are_listed_with_annotations(client):
     tools = {t.name: t for t in asyncio.run(run())}
     assert set(tools) == {"get_family_status", "setup_parent", "list_parent_requests", "get_new_parent_requests",
                           "approve_order", "checkout_order", "report_purchase", "reject_order", "cancel_order", "update_delegation",
-                          "setup_auto_check"}
+                          "setup_auto_check", "demo_parent_call"}
     assert tools["approve_order"].annotations.destructive_hint is True
     assert tools["list_parent_requests"].annotations.read_only_hint is True
     assert "결제해" in tools["approve_order"].description
@@ -90,13 +90,21 @@ def test_voice_onboarding_then_digest_then_pay(client):
     assert again["new"] == []
     pending = {i["item"]: i for i in listed["needs_approval"]}
     assert "전기요" in pending and pending["전기요"]["ship_to"] == "서울 마포구 월드컵로 1"
-    assert {i["item"] for i in listed["ordered"]} == {"휴지", "계란"}
+    # vooy가 결제하는 계정: 늘 사던 소액(자동결제 범위)은 vooy가 묻지 않고 살 목록으로 온다
+    assert {i["item"] for i in listed["ready_to_buy"]} == {"휴지", "계란"} and listed["ordered"] == []
 
-    paid, cancelled = mcp(("approve_order", {"order_id": "전기요"}), ("cancel_order", {"order_id": "전기요"}))
-    assert paid["ok"] and "테스트 결제 완료" in paid["message"]
+    # vooy로 가입한 계정은 vooy가 결제한다: 승인 → 1회용 토큰으로 테스트몰 결제 (엄마 문자는 vooy가 자식 말투로)
+    (approved,) = mcp(("approve_order", {"order_id": "전기요"}))
+    assert approved["ok"] and approved["next_action"]["tool"] == "checkout_order" and "handoff" not in approved
+    assert "checkout_order" in approved["message"] and "네이버" not in approved["message"]
+    paid, cancelled = mcp(
+        ("checkout_order", {"order_id": "전기요", "payment_token": approved["checkout"]["payment_token"],
+                            "message_to_mom": "엄마, 전기요 시켰어~ 모레 와!"}),
+        ("cancel_order", {"order_id": "전기요"}))
+    assert paid["ok"] and "테스트 결제 완료" in paid["message"] and paid["message_to_mom"] == "엄마, 전기요 시켰어~ 모레 와!"
     assert cancelled["ok"] and "환불" in cancelled["message"]
     sms = [e["text"] for e in c.get("/api/state").json()["events"] if e["kind"] == "sms_to_mom"]
-    assert any("전기요" in t and "주문했어요" in t for t in sms) and any("취소" in t for t in sms)
+    assert "엄마, 전기요 시켰어~ 모레 와!" in sms and any("취소" in t for t in sms)
 
 
 def test_server_refuses_to_pay_blocked_orders(client):
@@ -209,11 +217,11 @@ def test_vooy_checks_out_with_single_use_token(client):
 
 
 def test_vooy_buys_on_naver_and_reports_real_product(client):
-    """vooy가 네이버 스마트스토어에서 고른 상품으로 결제·보고하면 그 상품명으로 기록하고, vooy가 쓴 문자를 엄마에게 보낸다."""
+    """외부 쇼핑몰 모드: vooy가 네이버 스마트스토어에서 고른 상품으로 결제·보고하면 그 상품명으로 기록하고, vooy가 쓴 문자를 엄마에게 보낸다."""
     c, _ = client
     fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 강남구 강남대로 374"}])
     c.headers["X-Account"] = fam["dashboard_token"]
-    c.put("/api/policy", json={"payment_executor": "vooy"})
+    c.put("/api/policy", json={"payment_executor": "vooy", "vooy_checkout": "external"})
     c.post("/api/simulate/call-ended", json={"transcript": DAILY})
     ok, done = mcp(
         ("approve_order", {"order_id": "전기요"}),
@@ -233,7 +241,7 @@ def test_handoff_sends_naver_link(client):
     c, _ = client
     fam = family.register("레오", CHILD, [{"label": "엄마", "phone": MOM, "address": "서울 강남구 강남대로 374"}])
     c.headers["X-Account"] = fam["dashboard_token"]
-    c.put("/api/policy", json={"payment_executor": "vooy"})
+    c.put("/api/policy", json={"payment_executor": "vooy", "vooy_checkout": "external"})
     c.post("/api/simulate/call-ended", json={"transcript": DAILY})
     (first,) = mcp(("approve_order", {"order_id": "전기요"}))
     # 기본: 링크 없이 vooy가 네이버 스마트스토어에서 직접 찾아 산다
@@ -249,7 +257,8 @@ def test_handoff_sends_naver_link(client):
                                            "name": "종근당 콘드로이친 1200 플러스 60정 1박스", "price": 19710})
     (third,) = mcp(("approve_order", {"order_id": oid}))
     assert third["handoff"]["shop"] == "11번가" and third["handoff"]["price_on_link"] == 19710
-    assert third["message"].startswith("이 11번가 상품 링크에서 1개 구매하세요(테스트 결제): https://www.11st.co.kr/products/6891052001")
+    assert third["message"].startswith("이 11번가 상품 링크에서 1개 구매하세요: https://www.11st.co.kr/products/6891052001")
+    assert "실제 결제가 될 수 있으니" in third["message"]
 
 
 def test_two_accounts_are_isolated(client):

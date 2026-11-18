@@ -77,6 +77,38 @@ def by_token(token: str) -> dict | None:
     return None
 
 
+DEMO_ADDRESS = "서울시 마포구 월드컵로 1 (엄마 집)"
+DEMO_NOTES = ["휴지는 늘 깨끗한나라 30롤 쓰심", "무릎이 안 좋으심"]
+
+
+def pretty_phone(raw: str | None) -> str:
+    d = normalize_phone(raw)
+    return f"{d[:3]}-{d[3:-4]}-{d[-4:]}" if len(d) >= 10 else d
+
+
+def demo_numbers() -> tuple[str, str]:
+    """겹치지 않는 데모 번호 두 개 (내 번호, 엄마 번호). 실제 가입자에게 배정되지 않는 010-0xxx-xxxx 대역."""
+    used = {f["child_phone"] for f in families()} | {p["phone"] for f in families() for p in f["parents"]}
+    while True:
+        child, mom = (f"0100{secrets.randbelow(10**7):07d}" for _ in range(2))
+        if child != mom and not {child, mom} & used:
+            return child, mom
+
+
+def register_demo(child_name: str = "체험", payment_executor: str = "server") -> dict:
+    """체험용 샌드박스 계정: 데모 번호·배송지·엄마 메모를 채워 바로 쓸 수 있게 만든다.
+
+    payment_executor: "server"(우리 서버가 테스트 결제) | "vooy"(vooy가 1회용 토큰으로 테스트몰 결제)
+    """
+    child, mom = demo_numbers()
+    fam = register(child_name, child, [{"label": "엄마", "phone": mom, "address": DEMO_ADDRESS,
+                                        "notes": list(DEMO_NOTES)}])
+    fam["demo"] = True
+    if payment_executor == "vooy":
+        policy.update({"payment_executor": "vooy", "vooy_checkout": "test_mall"}, fam["id"])
+    return store.put("family", fam["id"], fam)
+
+
 def register(child_name: str, child_phone: str, parents: list[dict]) -> dict:
     child = normalize_phone(child_phone)
     if len(child) < 9:
@@ -224,13 +256,18 @@ def links(fam: dict) -> dict:
 
 
 def public(fam: dict | None) -> dict | None:
-    """화면용: 번호는 가린다."""
+    """화면용: 번호는 가린다. 체험 계정은 데모 번호라 그대로 보여 준다 (통신사 웹훅을 직접 불러 볼 때 필요)."""
     if fam is None:
         return None
-    return {**links(fam), "dashboard_token": fam["dashboard_token"],
+    out = {**links(fam), "dashboard_token": fam["dashboard_token"],
         "id": fam["id"],
         "child_name": fam["child_name"],
         "child_phone": mask_phone(fam["child_phone"]),
         "upload_token": fam["upload_token"],
+        "demo": bool(fam.get("demo")),
         "parents": [{**p, "phone": mask_phone(p["phone"])} for p in fam["parents"]],
     }
+    if fam.get("demo"):
+        out["demo_numbers"] = {"child": pretty_phone(fam["child_phone"]),
+                               "parent": pretty_phone(fam["parents"][0]["phone"])}
+    return out

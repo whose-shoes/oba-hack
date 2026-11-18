@@ -1,6 +1,6 @@
 """통화 기록 → '자식이 대신 해줘야 할 부탁' 구조화.
 
-LLM(A.X K2 / Claude)이 있으면 쓰고, 없거나 실패하면 규칙 기반으로 추출한다.
+LLM(SKT A.X / OpenAI / Claude)이 있으면 쓰고, 없거나 실패하면 규칙 기반으로 추출한다.
 모든 요청에는 통화 원문 근거(evidence)를 붙여, 자식이 왜 이 주문이 생겼는지 볼 수 있게 한다.
 """
 
@@ -30,6 +30,8 @@ SYSTEM = """너는 '엄마가 자식에게 건 전화' 통화 기록을 읽고, 
 - 구매가 아닌 부탁(병원 예약 등)은 other_tasks에 적는다.
 - '참고 정보'(자녀가 등록한 엄마의 선호·건강 메모)에 늘 쓰는 브랜드·규격이 있으면 detail에 반영한다.
   단, 통화에서 부탁하지 않은 물건을 참고 정보만 보고 requests에 넣지 않는다.
+- '에이닷 할일'(통화 요약에서 에이닷이 찾은 후속 조치)이 있으면 놓친 부탁이 없는지 확인하는 데 쓴다.
+  그래도 근거(evidence)는 반드시 통화 기록의 엄마 말에서 인용한다.
 JSON만 출력:
 {"summary": "한 문장 요약",
  "requests": [{"item": "일반 품목명(예: 휴지)", "detail": "규격/브랜드/옵션 또는 빈 문자열",
@@ -111,12 +113,15 @@ def redact(text: str) -> str:
     return LONG_NUMBER.sub("[번호]", PHONE.sub("[전화번호]", text))
 
 
-def extract(transcript: str, context: str = "") -> tuple[dict, str]:
-    """(추출 결과, 사용한 엔진 이름). context: 자녀가 등록한 가족 메모."""
+def extract(transcript: str, context: str = "", todos: list[str] | None = None) -> tuple[dict, str]:
+    """(추출 결과, 사용한 엔진 이름). context: 자녀가 등록한 가족 메모, todos: 에이닷이 통화 요약에서 찾은 할일."""
     prompt = f"통화 기록:\n{redact(transcript)}"
+    if todos:
+        prompt = "에이닷 할일(통화 요약에서 찾은 후속 조치):\n" + "\n".join(f"- {redact(t)}" for t in todos) + "\n\n" + prompt
     if context.strip():
         prompt = f"참고 정보(자녀가 등록한 가족 메모):\n{redact(context)}\n\n" + prompt
     result = llm.chat_json(SYSTEM, prompt)
+    engine = llm.engine_of(result) if result else ""
     if result and isinstance(result.get("requests"), list):
         result.setdefault("other_tasks", [])
         result.setdefault("scam_signals", [])
@@ -128,5 +133,5 @@ def extract(transcript: str, context: str = "") -> tuple[dict, str]:
             r.setdefault("detail", "")
             # "엄마: ..." 처럼 화자 표기가 붙어 오면 떼어 낸다
             r["evidence"] = re.sub(r"^\s*[^:：\s]{1,6}\s*[:：]\s*", "", r.get("evidence") or "")
-        return result, llm.provider_label()
+        return result, engine
     return rule_extract(transcript), "규칙 기반"

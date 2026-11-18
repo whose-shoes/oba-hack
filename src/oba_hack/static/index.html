@@ -46,6 +46,9 @@ body{margin:0;background:var(--bg-secondary);color:var(--fg-primary);
   font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,system-ui,"Apple SD Gothic Neo",sans-serif;
   font-size:.9375rem;line-height:1.375rem;letter-spacing:.0096em;font-feature-settings:"tnum" 0}
 b,strong{font-weight:600}
+a{color:var(--fg-brand);text-decoration:none}
+a:hover{text-decoration:underline}
+.chip:empty{display:none}
 .small{font-size:.75rem;line-height:1rem;letter-spacing:.0252em}
 .sub{color:var(--fg-tertiary);font-size:.8125rem;line-height:1.125rem;letter-spacing:.0194em}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.between{justify-content:space-between}
@@ -264,6 +267,7 @@ body.no-account [data-panel=home] section:not(#onboard){display:none!important}
       <label>월 예산 (원) <input type="number" id="p_month" step="10000"></label>
       <label>차단 품목 <input id="p_block"></label>
       <label>결제는 vooy 에이전트가 실행 <input type="checkbox" id="p_vooypay"></label>
+      <label>vooy가 실제 쇼핑몰(네이버·11번가)에서 구매 <span class="small" style="color:var(--bad)">실제 결제 주의</span> <input type="checkbox" id="p_external"></label>
       <label>데모: 카드 결제 실패시키기 <input type="checkbox" id="p_fail"></label>
       <div class="sub" id="history"></div>
     </section>
@@ -296,16 +300,21 @@ function renderOnboard(f, mcpUrl) {
   $("#send").disabled = !ready;
   $("#simmsg").textContent = ready ? "" : "가입하고 엄마 번호를 등록하면 시뮬레이션할 수 있어요.";
   if (!f) {
+    const rnd = () => { const d = String(Math.floor(Math.random() * 1e7)).padStart(7, "0"); return `010-0${d.slice(0, 3)}-${d.slice(3)}`; };
     el.innerHTML = `<h2>시작하기: 엄마 번호만 등록하면 끝</h2>
       <div class="sub">가입하면 나만의 vooy 연결 주소와 대시보드 링크가 생겨요. 엄마와의 통화만 처리하고, 다른 통화는 저장하지 않아요.</div>
+      <div class="row" style="margin-top:12px"><button class="primary" id="demo">체험 계정으로 바로 시작</button>
+        <span class="sub">데모 번호·엄마 메모가 채워진 계정 · <a href="/skt">에이닷 연동 데모</a> · <a href="/vooy">vooy MCP 데모</a></span></div>
+      <details><summary>직접 가입하기</summary>
       <div class="form">
         <label>내 이름<input id="s_name" value="지누"></label>
-        <label>내 번호<input id="s_phone" value="010-1234-5678" inputmode="tel"></label>
+        <label>내 번호<input id="s_phone" value="${rnd()}" inputmode="tel"></label>
         <label>부모님 호칭<input id="s_label" value="엄마"></label>
-        <label>부모님 번호<input id="s_mphone" value="010-2345-6789" inputmode="tel"></label>
+        <label>부모님 번호<input id="s_mphone" value="${rnd()}" inputmode="tel"></label>
         <label class="wide">배송지<input id="s_addr" value="서울시 마포구 월드컵로 1 (엄마 집)"></label>
       </div>
-      <div class="row between"><span class="small" id="s_err" style="color:var(--bad)"></span><button class="primary" id="signup">가입하고 엄마 연동하기</button></div>`;
+      <div class="row between"><span class="small" id="s_err" style="color:var(--bad)"></span><button class="primary" id="signup">가입하고 엄마 연동하기</button></div>
+      </details>`;
   } else {
     el.classList.add("done");
     el.innerHTML = `<div class="row between"><span>✅ <b>${esc(mom.label)}</b>(${esc(mom.phone)})와 연동됨 · 통화가 끝나면 알아서 처리해요</span></div>
@@ -368,6 +377,7 @@ function render(s) {
   $("#calls").innerHTML = s.calls.map(c => `<div class="card">
     <div class="row between"><span class="name">${esc(c.caller)}의 전화</span><span class="st ${c.status}">${ST[c.status]||c.status}</span></div>
     <div class="sub small">${esc(c.received_at?.replace("T"," "))} · ${esc(c.source)}${c.engine ? " · 분석 " + esc(c.engine) : ""}</div>
+    ${c.aidot ? `<div class="quote" style="border-left-color:var(--fg-violet)"><b>에이닷 통화 요약</b>${esc(c.aidot.summary || "")}${(c.aidot.todos || []).length ? `<div class="small" style="margin-top:4px">할일: ${c.aidot.todos.map(esc).join(" · ")}</div>` : ""}</div>` : ""}
     ${c.extraction ? `<div style="margin-top:4px">${esc(c.extraction.summary)}</div>` : ""}
     ${c.extraction?.scam_signals?.length ? `<div class="small" style="color:var(--bad)">⚠️ 사칭 의심: ${esc(c.extraction.scam_signals.join(", "))}</div>` : ""}
     ${c.status === "needs_transcript" ? `<textarea data-tr="${c.id}" placeholder="에이닷 통화 요약/텍스트를 붙여 넣어 주세요"></textarea><button class="primary" data-trbtn="${c.id}" style="margin-top:6px">분석하기</button>` : ""}
@@ -398,8 +408,9 @@ function render(s) {
     $("#p_month").value = p.monthly_budget; $("#p_block").value = p.blocked_categories.join(", ");
     $("#p_fail").checked = p.simulate_card_failure;
     $("#p_vooypay").checked = p.payment_executor === "vooy";
-    $("#history").textContent = "엄마 구매 이력: " + s.history.map(h => `${h.name}(${h.date})`).join(", ");
+    $("#p_external").checked = p.vooy_checkout === "external";
   }
+  $("#history").textContent = "엄마 구매 이력 (한 번 산 상품은 다음부터 ‘늘 사던 상품’): " + s.history.map(h => `${h.name}(${h.date}${h.times > 1 ? ` · ${h.times}회` : ""})`).join(", ");
 }
 
 async function refresh() {
@@ -430,7 +441,14 @@ document.addEventListener("click", async e => {
     if (t.dataset.act) { t.disabled = true; await api(`/api/orders/${t.dataset.id}/${t.dataset.act}`, {method:"POST"}); }
     else if (t.dataset.swap) { await api(`/api/orders/${t.dataset.swap}/swap`, {method:"POST", body:JSON.stringify({product_id:t.dataset.pid})}); }
     else if (t.dataset.trbtn) { const v = document.querySelector(`[data-tr="${t.dataset.trbtn}"]`).value; await api(`/api/calls/${t.dataset.trbtn}/transcript`, {method:"POST", body:JSON.stringify({text:v})}); }
-    else if (t.dataset.sample) { const s = samples.find(x => x.id === t.dataset.sample); $("#transcript").value = s.transcript; $("#who").value = s.caller === "엄마" ? "parent" : "unknown"; return; }
+    else if (t.dataset.sample) { const s = samples.find(x => x.id === t.dataset.sample); picked = s; $("#transcript").value = s.transcript; $("#who").value = s.caller === "엄마" ? "parent" : "unknown"; return; }
+    else if (t.id === "demo") {
+      t.disabled = true;
+      const made = await api("/api/demo", {method:"POST", body:JSON.stringify({audience:"skt"})});
+      setAccount(made.dashboard_token);
+      location.href = "/?a=" + encodeURIComponent(made.dashboard_token);
+      return;
+    }
     else if (t.id === "signup") {
       try {
         const made = await api("/api/families", {method:"POST", body:JSON.stringify({child_name:$("#s_name").value, child_phone:$("#s_phone").value,
@@ -452,14 +470,15 @@ $("#send").onclick = async () => {
   if (!$("#transcript").value.trim()) return;
   $("#send").disabled = true;
   try {
-    const r = await api("/api/simulate/call-ended", {method:"POST", body:JSON.stringify({transcript:$("#transcript").value, who:$("#who").value, direction:$("#dir").value})});
+    const text = $("#transcript").value, aidot = picked && picked.transcript === text ? {summary: picked.summary, todos: picked.todos} : {};
+    const r = await api("/api/simulate/call-ended", {method:"POST", body:JSON.stringify({transcript:text, who:$("#who").value, direction:$("#dir").value, ...aidot})});
     $("#simmsg").textContent = r.accepted ? "통화 종료 → 에이닷 웹훅 수신 → 처리 중…" : "🔒 등록되지 않은 번호와의 통화라 저장하지 않고 버렸어요.";
     if (r.accepted) $("#transcript").value = "";
   } catch (err) { $("#simmsg").textContent = "실패: " + err.message; }
   $("#send").disabled = false; last = ""; setTimeout(refresh, 300);
 };
-async function saveVooy() {
-  const body = {push_url: $("#v_url").value.trim(), user_id: $("#v_user").value.trim()};
+async function saveVooy(extra = {}) {
+  const body = {push_url: $("#v_url").value.trim(), user_id: $("#v_user").value.trim(), ...extra};
   if ($("#v_token").value.trim()) body.push_token = $("#v_token").value.trim();
   if ($("#v_secret").value.trim()) body.signing_secret = $("#v_secret").value.trim();
   try {
@@ -469,8 +488,12 @@ async function saveVooy() {
   } catch (err) { let d; try { d = JSON.parse(err.message).detail; } catch (_) {} $("#v_msg").textContent = typeof d === "string" ? d : "저장 실패"; }
   last = ""; refresh();
 }
-$("#v_save").onclick = saveVooy;
-$("#v_mock").onclick = () => { $("#v_url").value = location.origin + "/mock/vooy/webhook"; saveVooy(); };
+$("#v_save").onclick = () => saveVooy();
+$("#v_mock").onclick = () => {
+  $("#v_url").value = location.origin + "/mock/vooy/webhook";
+  const secret = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join("");
+  saveVooy($("#v_secret").placeholder.startsWith("설정됨") ? {} : {signing_secret: secret});
+};
 $("#v_test").onclick = async () => {
   const r = await api("/api/vooy/test", {method:"POST"});
   $("#v_msg").textContent = r.ok ? `테스트 발송 성공 (${r.result})` : `테스트 발송 실패: ${r.result}`;
@@ -482,10 +505,11 @@ document.querySelectorAll(".policy input").forEach(i => i.addEventListener("chan
   await api("/api/policy", {method:"PUT", body:JSON.stringify({
     trusted_callers:list($("#p_trusted").value), auto_approve_limit:+$("#p_auto").value, auto_approve_new_items:$("#p_new").checked,
     max_per_order:+$("#p_max").value, monthly_budget:+$("#p_month").value, blocked_categories:list($("#p_block").value),
-    simulate_card_failure:$("#p_fail").checked, payment_executor:$("#p_vooypay").checked ? "vooy" : "server"})});
+    simulate_card_failure:$("#p_fail").checked, payment_executor:$("#p_vooypay").checked ? "vooy" : "server",
+    vooy_checkout:$("#p_external").checked ? "external" : "test_mall"})});
   last = ""; refresh();
 }));
-let samples = [];
+let samples = [], picked = null;
 api("/api/samples").then(s => { samples = s; $("#samples").innerHTML = s.map(x => `<button data-sample="${x.id}">${esc(x.title)}</button>`).join(""); });
 function showTab(name) {
   document.body.dataset.tab = name;

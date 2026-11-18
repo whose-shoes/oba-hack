@@ -1,0 +1,37 @@
+# Fly.io 데모 서버 설정. 배포 방법은 docs/DEPLOY.md
+app = "dont-call-me-mama"
+primary_region = "nrt"
+
+[env]
+  OBA_DATA_DIR = "/data"
+  OBA_PORT = "8080"
+  OBA_DEMO_MODE = "1"
+  TZ = "Asia/Seoul"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # vooy 5분 폴링·웹훅 재시도가 끊기지 않도록 항상 켜 둔다 (SQLite 볼륨이라 머신은 1대)
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[mounts]
+  source = "dcmm_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

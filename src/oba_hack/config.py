@@ -32,3 +32,13 @@ def josa(word: str, with_batchim: str, without: str) -> str:
 def telco_token() -> str:
     """통신사(SKT) 연동 웹훅 인증 토큰."""
     return os.environ.get("OBA_TELCO_TOKEN", "")
+
+
+def demo_mode() -> bool:
+    """데모 서버 기능(샌드박스 계정, vooy용 데모 통화 도구, 통화 결과 조회)을 켤지. 기본 켬."""
+    return os.environ.get("OBA_DEMO_MODE", "1").strip().lower() not in ("0", "false", "no", "off", "")
+
+
+def telco_signing_secret() -> str:
+    """설정하면 통신사 웹훅에 HMAC 서명(X-Telco-Signature)도 요구한다."""
+    return os.environ.get("OBA_TELCO_SIGNING_SECRET", "")

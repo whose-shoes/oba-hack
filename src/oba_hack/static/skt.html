@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>에이닷 연동 데모 · don't call me, Mama</title>
+<meta name="description" content="에이닷 통화 요약에서 찾은 장보기 할일을, 자녀가 정한 범위 안에서 결제와 부모님 안내까지 끝내는 에이전트 데모">
+<link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css">
+<link rel="stylesheet" href="/static/site.css">
+<style>
+.demo{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:20px;align-items:start;margin-top:14px}
+@media (max-width:880px){.demo{grid-template-columns:1fr}}
+.phone{background:var(--bg-primary);border:1px solid var(--line);border-radius:30px;padding:16px;box-shadow:var(--shadow-m)}
+@media (min-width:881px){.phone{position:sticky;top:76px}}
+.phone-top{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--fg-tertiary);margin-bottom:10px}
+.phone-top .app{font-weight:700;color:var(--fg-violet)}
+.callee{display:flex;align-items:center;gap:10px;padding:6px 2px 12px;border-bottom:1px solid var(--line-2)}
+.avatar{width:40px;height:40px;border-radius:50%;background:var(--violet-subtle);color:var(--fg-violet);display:flex;align-items:center;justify-content:center;font-weight:700}
+.callee b{display:block;font-size:16px}
+.callee span{color:var(--fg-tertiary);font-size:13px;font-variant-numeric:tabular-nums}
+.callee.unknown .avatar{background:var(--negative-subtle);color:var(--fg-negative)}
+#scen{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.talk{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto;padding:4px 2px}
+.talk .bubble{font-size:13.5px}
+.aidot{background:var(--violet-subtle);border-radius:14px;padding:12px 14px;margin-top:12px;font-size:13.5px}
+.aidot .h{font-size:12px;font-weight:700;color:var(--fg-violet);margin:0 0 4px}
+.aidot p{margin:0 0 8px;color:var(--fg-secondary)}
+.aidot ul{margin:0;padding-left:0;list-style:none}
+.aidot li{padding-left:22px;position:relative;margin:2px 0;color:var(--fg-secondary)}
+.aidot li::before{content:"";position:absolute;left:2px;top:4px;width:12px;height:12px;border:1.5px solid var(--fg-violet);border-radius:4px}
+.phone details{margin-top:10px}
+.phone details summary{cursor:pointer;font-size:13px;color:var(--fg-tertiary)}
+.phone textarea{margin-top:8px;min-height:130px;font-size:13px}
+.hangup{width:100%;height:52px;border-radius:26px;margin-top:14px;background:#FF3B30;border-color:transparent;color:#fff;font-size:16px}
+.hangup:hover{background:#E5352B}
+
+.flow h3{margin-top:0}
+.steps{list-style:none;margin:0;padding:0}
+.steps>li{position:relative;padding:0 0 18px 46px;min-height:34px}
+.steps>li:not(:last-child)::after{content:"";position:absolute;left:15px;top:32px;bottom:2px;width:2px;background:var(--line-2)}
+.steps .dot{position:absolute;left:0;top:0;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--surface-3);color:var(--fg-tertiary);font-size:13px;font-weight:700;transition:background .2s}
+.steps .t{font-weight:650;line-height:32px}
+.steps .d{color:var(--fg-secondary);font-size:14px;margin-top:2px}
+.steps .d:empty{display:none}
+.steps>li.active .dot{background:var(--brand);color:#fff;animation:pulse 1s ease-in-out infinite}
+.steps>li.done .dot{background:var(--fg-positive);color:#fff}
+.steps>li.wait .dot{background:var(--fg-cautionary);color:#fff}
+.steps>li.stop .dot{background:var(--fg-negative);color:#fff}
+.steps>li.skip{opacity:.5}
+@keyframes pulse{50%{box-shadow:0 0 0 6px var(--brand-subtle)}}
+.steps .line{padding:6px 0;border-top:1px dashed var(--line-2)}
+.steps .line:first-child{border-top:0}
+.steps ul.items{margin:6px 0 0;padding-left:18px}
+.steps q{color:var(--fg-tertiary)}
+.warn{color:var(--fg-negative);font-size:13.5px;margin-top:6px}
+#recent{display:flex;flex-wrap:wrap;gap:6px}
+#recent .recent{height:auto;min-height:32px;padding:4px 12px;border-radius:99px;font-size:12.5px;font-weight:500;white-space:normal;text-align:left}
+#recent .recent.on{border-color:var(--line-brand);background:var(--brand-subtle)}
+#acct{font-size:14px;background:var(--surface-2);border:1px solid var(--line-2);border-radius:14px;padding:10px 14px}
+#acct .row{row-gap:6px}
+
+.arch{display:grid;grid-template-columns:1fr auto 1.25fr auto 1fr;gap:8px;align-items:center;margin:12px 0 4px}
+.arch .box{background:var(--surface-2);border:1px solid var(--line-2);border-radius:14px;padding:12px 14px;font-size:13.5px}
+.arch .box b{display:block;font-size:14.5px;margin-bottom:2px}
+.arch .box.skt{border-color:var(--fg-violet);background:var(--violet-subtle)}
+.arch .box.us{border-color:var(--line-brand);background:var(--brand-subtle)}
+.arch .arrow{color:var(--fg-tertiary);font-size:12px;text-align:center;line-height:1.3}
+.arch .arrow::before{content:"→";display:block;font-size:22px;color:var(--fg-quaternary)}
+@media (max-width:760px){.arch{grid-template-columns:1fr}.arch .arrow::before{content:"↓"}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="logo" href="/skt">don't call me, <b>Mama</b> <span class="x">× 에이닷</span></a>
+  <div class="chips"><span class="chip brand" id="engine">분석 엔진 확인 중</span><span class="chip">모든 결제·문자는 테스트</span></div>
+</div></header>
+
+<main class="wrap">
+<section class="hero">
+  <span class="eyebrow">SKT 에이닷 연동 데모</span>
+  <h1>에이닷이 찾은 ‘장보기 할일’,<br>결제까지 끝냅니다</h1>
+  <p class="lead">엄마와 통화가 끝나면 에이닷 통화 요약에서 부탁을 찾아, 자녀가 정해 둔 범위 안에서 상품을 고르고 결제한 뒤 엄마께 문자까지 보냅니다. 엄마는 새 앱 없이 평소처럼 전화만 하면 됩니다.</p>
+  <div class="row"><a class="btn primary" href="#try">직접 해 보기</a><a class="btn" href="#spec">연동 명세</a><a class="btn" href="#curl">API로 호출해 보기</a></div>
+  <ul class="facts">
+    <li><b>0탭</b><span>통화 종료 웹훅 하나로 연결</span></li>
+    <li><b>엄마 번호만</b><span>다른 통화는 내용·번호 모두 저장하지 않고 폐기</span></li>
+    <li><b>믿고 맡기는 범위</b><span>늘 사던 소액은 바로, 새 상품·고액은 자녀 승인, 사칭은 차단</span></li>
+  </ul>
+  <p class="note">SKT는 2026년 6월 에이닷 업데이트에서 “통화 요약 내용 중 장보기, 전화하기, 서류 제출 등 후속 조치가 필요한 내용이 확인되면 자동으로 ‘할일’에 등록된다”고 발표했습니다(<a href="https://news.sktelecom.com/227226" target="_blank" rel="noopener">SKT 뉴스룸</a>). 이 데모는 그다음 단계입니다 — 장보기 할일을 실제 구매·결제·부모님 안내까지 끝냅니다.</p>
+</section>
+
+<section class="card" id="try">
+  <h2>직접 해 보기</h2>
+  <p class="sub">체험 계정이 자동으로 만들어져요. 데모 번호·엄마 메모·위임 범위가 채워져 있고, 다른 사람의 체험과 섞이지 않습니다.</p>
+  <div id="acct">체험 계정 준비 중…</div>
+  <div class="demo">
+    <div class="phone" aria-label="에이닷 전화 화면 (모의)">
+      <div class="phone-top"><span class="app">에이닷 전화</span><span>통화 녹음 · 요약 켜짐</span></div>
+      <div class="callee" id="callee"><div class="avatar">엄</div><div><b>엄마</b><span>…</span></div></div>
+      <div id="scen" role="group" aria-label="통화 상황"></div>
+      <div class="talk" id="talk"></div>
+      <div class="aidot" id="aidot"></div>
+      <details><summary>대화 직접 고치기</summary><textarea id="tx" aria-label="통화 내용"></textarea>
+        <div class="sub small">고치면 에이닷 요약·할일 없이 대화만 보냅니다.</div></details>
+      <button class="hangup" id="hangup">📞 통화 종료</button>
+    </div>
+    <div class="flow">
+      <h3>통화가 끝난 뒤 서버에서 일어나는 일</h3>
+      <ol class="steps" id="steps"></ol>
+      <details class="more" id="reqwrap"><summary>에이닷이 보내는 웹훅 요청 보기</summary><div id="req"></div></details>
+      <h3>최근 통화 <span class="sub small">— curl로 직접 보낸 통화도 여기에 나타나요</span></h3>
+      <div id="recent"></div>
+    </div>
+  </div>
+</section>
+
+<section class="card" id="spec">
+  <h2>SKT가 연결할 것</h2>
+  <p class="sub">에이닷이 이미 만드는 통화 요약·할일을, 자녀가 동의한 부모님 번호에 한해 웹훅 하나로 넘기면 됩니다.</p>
+  <div class="arch">
+    <div class="box skt"><b>에이닷</b>통화 녹음 · 요약 · 할일</div>
+    <div class="arrow">통화 종료 웹훅<br>등록된 번호만</div>
+    <div class="box us"><b>don't call me, Mama</b>번호 필터 → 부탁 추출 → 상품 선택 → 위임 판단 → 테스트 결제 → 실패 복구</div>
+    <div class="arrow">정리본 · 문자</div>
+    <div class="box"><b>자녀 · 엄마</b>자녀: vooy·앱으로 승인<br>엄마: “주문했어요” 문자</div>
+  </div>
+  <div class="grid2" style="margin-top:12px">
+    <div>
+      <h3>SKT 쪽</h3>
+      <ol class="numbered">
+        <li><b>동의 받기</b> — 에이닷 설정에서 자녀가 ‘가족 부탁 위임’을 켜고 부모님 번호를 고르면, 그 번호와의 통화만 내보냅니다.</li>
+        <li><b>통화 종료 웹훅</b> — 그 번호와 통화가 끝나면 요약·할일·대화 텍스트를 한 번 POST 합니다 (아래 계약).</li>
+        <li><b>(선택) 문자·결제 연결</b> — 엄마 안내 문자는 발신번호를 사전등록한 문자 API로, 결제는 SK pay로 붙일 수 있습니다.</li>
+      </ol>
+    </div>
+    <div>
+      <h3>우리 쪽 (이 데모에 구현됨)</h3>
+      <ol class="numbered">
+        <li>번호 필터 — 등록되지 않은 통화는 내용·번호 모두 저장하지 않고 버립니다.</li>
+        <li>부탁 추출 — 품목·수량·엄마의 실제 말·사칭 정황. LLM에 보내기 전 전화·계좌번호를 가립니다.</li>
+        <li>상품 선택 · 위임 판단 · 테스트 결제 · 결제수단 실패 시 복구 · 취소/환불.</li>
+        <li>자녀에게 정리본(vooy·앱), 엄마께 문자.</li>
+      </ol>
+    </div>
+  </div>
+
+  <h3>웹훅 계약</h3>
+  <div id="contract"></div>
+  <div class="table-wrap"><table class="spec">
+    <tr><th>필드</th><th>필수</th><th>설명</th></tr>
+    <tr><td><code>call_id</code></td><td>권장</td><td>통신사 통화 ID. 같은 값이 다시 오면 중복으로 보고 처리하지 않습니다.</td></tr>
+    <tr><td><code>from_number</code> · <code>to_number</code></td><td>필수</td><td>건 사람 · 받은 사람. 방향은 상관없고, 자녀 ↔ 등록된 부모님 조합만 처리합니다.</td></tr>
+    <tr><td><code>ended_at</code></td><td>선택</td><td>통화 종료 시각 (ISO 8601).</td></tr>
+    <tr><td><code>summary</code></td><td>선택</td><td>에이닷 통화 요약. 기록에 함께 보관합니다.</td></tr>
+    <tr><td><code>todos</code></td><td>선택</td><td>에이닷 ‘할일’ 목록. 부탁 추출의 힌트로 씁니다 (예: <code>장보기: 휴지 30롤</code>).</td></tr>
+    <tr><td><code>transcript</code></td><td>필수</td><td>화자 표기된 통화 텍스트 (<code>엄마: …</code> / <code>나: …</code>).</td></tr>
+  </table></div>
+  <div class="table-wrap"><table class="spec">
+    <tr><th>응답</th><th>뜻</th></tr>
+    <tr><td><code>202 {"accepted": true, "call_id": "…"}</code></td><td>받았고 처리를 시작함 (비동기, 보통 수 초)</td></tr>
+    <tr><td><code>202 {"accepted": false, "reason": "not a registered family call"}</code></td><td>등록된 가족 통화가 아님 — 아무것도 저장하지 않음</td></tr>
+    <tr><td><code>202 {"accepted": true, "duplicate": true}</code></td><td>이미 받은 <code>call_id</code></td></tr>
+    <tr><td><code>401</code> · <code>422</code></td><td>토큰·서명 오류 · 형식 오류</td></tr>
+  </table></div>
+  <h3>보안 · 개인정보</h3>
+  <ul>
+    <li>인증은 <code>Authorization: Bearer</code> 토큰. 서명 비밀을 설정하면 <code>X-Telco-Signature: sha256=HMAC(비밀, "&lt;timestamp&gt;.&lt;본문&gt;")</code>와 5분 안의 <code>X-Telco-Timestamp</code>도 요구합니다 (이 데모 서버: <span id="signing">확인 중</span>).</li>
+    <li>등록된 부모님 번호와의 통화만 처리합니다. 가장 좋은 건 SKT 쪽에서 애초에 그 통화만 보내는 것이고, 잘못 와도 서버가 저장하지 않고 버립니다.</li>
+    <li>화면·자녀 메신저 응답의 번호는 가리고, 외부 LLM에는 전화·계좌번호를 가린 텍스트만 보냅니다.</li>
+    <li>결제를 대신 실행하는 쪽(예: vooy)에는 카드번호 대신 이 주문·이 금액에만 30분 동안 한 번 쓰는 토큰만 넘깁니다.</li>
+  </ul>
+</section>
+
+<section class="card" id="curl">
+  <h2>에이닷 대신 직접 호출해 보기</h2>
+  <p class="sub">별도로 전달드린 통신사 토큰을 <code>TELCO_TOKEN</code>에 넣고 실행하세요. 번호는 위 체험 계정의 데모 번호라, 결과가 위 ‘최근 통화’와 대시보드에 바로 나타납니다.</p>
+  <div id="curl1"></div>
+  <p class="sub">처리 결과 확인 (통신사가 보낸 <code>call_id</code>로 조회, 데모 서버 전용):</p>
+  <div id="curl2"></div>
+  <p class="sub">같은 <code>call_id</code>로 한 번 더 보내면 <code>duplicate: true</code>가 돌아옵니다. 엄마 번호 대신 다른 번호를 넣으면 <code>accepted: false</code>이고 아무것도 저장되지 않습니다.</p>
+</section>
+
+<section class="card">
+  <h2>SKT 협력 없이 지금 바로 되는 연결</h2>
+  <p class="sub">에이닷 통화 기록 → 공유 → iOS 단축어 한 번(1탭)으로 같은 처리를 탈 수 있습니다.</p>
+  <ol class="numbered" id="shortcut"></ol>
+</section>
+
+<section class="card">
+  <h2>SKT 기술이 들어가는 자리</h2>
+  <div class="grid2" style="margin-top:12px">
+    <div class="tile"><h3>에이닷 통화 녹음 · 요약 · 할일</h3><p>구매의 출발점. 통화 종료 웹훅이면 0탭, 지금은 공유 1탭.</p></div>
+    <div class="tile"><h3>A.X</h3><p>분석 엔진. <code>OBA_AX_API_KEY</code>만 넣으면 1순위로 쓰고, 실패하면 다른 엔진·규칙 기반으로 자동 전환합니다. 지금 엔진: <b id="engine2">…</b></p></div>
+    <div class="tile"><h3>SK pay</h3><p>결제수단. 데모에서는 두 번째 결제수단으로, 카드 승인이 거절되면 자동으로 SK pay로 복구합니다 (대시보드 설정에서 ‘카드 결제 실패시키기’로 재현).</p></div>
+    <div class="tile"><h3>문자</h3><p>엄마 안내. 발신번호 변작 금지에 맞춰 사전등록한 서비스 번호 + 자녀 이름으로 보냅니다 (데모는 모의 발송).</p></div>
+  </div>
+</section>
+
+<footer><div class="row">
+  <a href="/" id="dash">대시보드</a><a href="/vooy">vooy 연동 데모 →</a>
+  <a href="https://github.com/whose-shoes/oba-hack" target="_blank" rel="noopener">GitHub</a>
+  <span>모든 결제·문자는 테스트(모의)이며 실제 거래가 일어나지 않습니다.</span>
+</div></footer>
+</main>
+
+<script src="/static/site.js"></script>
+<script>
+useAccountKey("dcmm-account-skt");
+const SCEN = [
+  {key: "daily", id: "1-daily", label: "장보기", who: "parent"},
+  {key: "health", id: "3-health", label: "건강식품", who: "parent"},
+  {key: "choose", id: "0-chondroitin", label: "알아서 골라 줘", who: "parent"},
+  {key: "scam-unknown", id: "2-scam", label: "사칭 · 모르는 번호", who: "unknown"},
+  {key: "scam-mom", id: "2-scam", label: "사칭 · 엄마 번호로", who: "parent"},
+];
+const UNKNOWN = "010-9876-5432";
+const STEPS = [["recv", "에이닷 → 통화 종료 웹훅"], ["filter", "번호 확인"], ["extract", "부탁 찾기"], ["choose", "상품 고르기"],
+               ["decide", "위임 판단"], ["pay", "결제"], ["sms", "엄마께 문자"], ["child", "자녀에게 정리본"]];
+const DEC = {auto: "자동결제", ask: "자녀 승인", block: "결제 안 함"};
+const S = {st: null, samples: [], scen: SCEN[0], busy: false, current: null, seen: new Set(), testId: "skt-test-" + Math.random().toString(36).slice(2, 6)};
+const sample = id => S.samples.find(s => s.id === id);
+const momNumber = () => S.st?.family?.demo_numbers?.parent || S.st?.family?.parents?.[0]?.phone || "";
+const childNumber = () => S.st?.family?.demo_numbers?.child || S.st?.family?.child_phone || "";
+
+function renderSteps() {
+  $("#steps").innerHTML = STEPS.map(([k, t], i) => `<li id="st-${k}"><span class="dot">${i + 1}</span><div class="t">${t}</div><div class="d"></div></li>`).join("");
+}
+function setStep(k, state, html) {
+  const li = $(`#st-${k}`); li.className = state || "";
+  li.querySelector(".dot").textContent = state === "done" ? "✓" : state === "stop" ? "✕" : String(STEPS.findIndex(s => s[0] === k) + 1);
+  if (html !== undefined) li.querySelector(".d").innerHTML = html;
+}
+function resetSteps() { STEPS.forEach(([k]) => setStep(k, "", "")); }
+
+function renderAccount() {
+  const f = S.st.family, p = S.st.policy;
+  $("#acct").innerHTML = `<div class="row between"><div class="row">
+      <span class="badge brand">${f.demo ? "체험 계정" : "내 계정"}</span>
+      <span>내 번호 <b>${esc(childNumber())}</b></span><span>엄마 <b>${esc(momNumber())}</b></span>
+      <span class="sub">자동결제 한도 ${won(p.auto_approve_limit)} · 1회 최대 ${won(p.max_per_order)} · 차단 품목 ${esc(p.blocked_categories.join(", "))}</span>
+    </div><div class="row">
+      <a class="btn sm" href="/?a=${encodeURIComponent(f.dashboard_token)}" target="_blank" rel="noopener">대시보드에서 범위 바꾸기</a>
+      <button class="sm" id="newacct">새 체험 계정</button></div></div>`;
+  $("#dash").href = "/?a=" + encodeURIComponent(f.dashboard_token);
+}
+
+function pickScenario(sc) {
+  S.scen = sc; const s = sample(sc.id);
+  $$("#scen button").forEach(b => b.classList.toggle("on", b.dataset.key === sc.key));
+  const unknown = sc.who === "unknown";
+  $("#callee").className = "callee" + (unknown ? " unknown" : "");
+  $("#callee").innerHTML = `<div class="avatar">${unknown ? "?" : "엄"}</div><div><b>${unknown ? "모르는 번호" : "엄마"}</b><span>${esc(unknown ? UNKNOWN : momNumber())} · 통화 3:12</span></div>`;
+  $("#talk").innerHTML = talkBubbles(s.transcript);
+  $("#aidot").innerHTML = `<div class="h">에이닷 통화 요약</div><p>${esc(s.summary)}</p><div class="h">할일</div><ul>${s.todos.map(t => `<li>${esc(t)}</li>`).join("")}</ul>`;
+  $("#tx").value = s.transcript;
+  showRequest(payloadFor(s, s.transcript));
+}
+
+function payloadFor(s, text) {
+  const edited = text !== s.transcript;
+  const from = S.scen.who === "unknown" ? UNKNOWN : momNumber();
+  return {call_id: "sim-…", from_number: from, to_number: childNumber(), ended_at: new Date().toISOString().slice(0, 19) + "+09:00",
+          ...(edited ? {} : {summary: s.summary, todos: s.todos}), transcript: text};
+}
+function showRequest(body) {
+  $("#req").innerHTML = codeBlock(`POST /v1/telco/call-ended\nAuthorization: Bearer <통신사 토큰>\nContent-Type: application/json\n\n${JSON.stringify(body, null, 2)}`, {copy: false});
+}
+
+async function hangup() {
+  if (S.busy) return;
+  S.busy = true; $("#hangup").disabled = true; resetSteps();
+  const s = sample(S.scen.id), text = $("#tx").value.trim() || s.transcript, edited = text !== s.transcript;
+  setStep("recv", "active", "통화가 끝났어요. 에이닷이 웹훅을 보내는 중…");
+  let r;
+  try {
+    r = await api("/api/simulate/call-ended", {method: "POST", body: JSON.stringify({
+      transcript: text, who: S.scen.who, direction: "incoming", summary: edited ? "" : s.summary, todos: edited ? [] : s.todos})});
+  } catch (e) { setStep("recv", "stop", "보내지 못했어요: " + esc(e.message)); return finish(); }
+  showRequest(r.sent);
+  await sleep(450);
+  setStep("recv", "done", `<code>POST /v1/telco/call-ended</code> · call_id <code>${esc(r.sent.call_id)}</code>` +
+    (r.sent.todos?.length ? ` · 에이닷 할일 ${r.sent.todos.length}건 포함` : ""));
+  setStep("filter", "active");
+  await sleep(450);
+  if (!r.accepted) {
+    setStep("filter", "stop", `<b>${esc(r.sent.from_number)}</b>은 등록된 엄마 번호가 아니에요. 통화 내용과 번호를 <b>저장하지 않고 폐기</b>했어요. 응답은 <code>202 {"accepted": false}</code>.`);
+    STEPS.slice(2).forEach(([k]) => setStep(k, "skip", ""));
+    return finish();
+  }
+  setStep("filter", "done", "등록된 엄마 번호와의 통화예요. 이 통화만 처리합니다.");
+  setStep("extract", "active", "통화에서 부탁을 찾는 중…");
+  S.current = r.call_id; S.seen.add(r.call_id);
+  try { await renderOutcome(await waitOutcome(r.call_id), true); }
+  catch (e) { setStep("extract", "stop", "처리 결과를 받지 못했어요: " + esc(e.message)); }
+  finish();
+}
+function finish() { S.busy = false; $("#hangup").disabled = false; renderRecent(); }
+
+async function waitOutcome(id) {
+  for (let i = 0; i < 90; i++) {
+    const o = await api(`/api/calls/${id}/outcome`);
+    if (["processed", "needs_transcript"].includes(o.status)) return o;
+    await sleep(500);
+  }
+  throw new Error("시간 초과");
+}
+
+function payLine(it) {
+  const name = esc(it.product || it.item);
+  if (it.status === "paid") return `<div class="line">✅ <b>${name}</b> ${won(it.total)} 테스트 결제 완료 <span class="sub">${esc(it.receipt?.method || "")}</span>` +
+    (it.attempts?.length > 1 ? `<div class="sub small">첫 결제수단 실패 → 다음 수단으로 복구: ${esc(it.attempts.join(" / "))}</div>` : "") + `</div>`;
+  if (["awaiting_approval", "payment_failed"].includes(it.status)) return `<div class="line">🟡 <b>${name}</b> ${won(it.total)} — 자녀 승인 대기
+    <div class="row" style="margin-top:6px"><button class="primary sm" data-approve="${it.order_id}">${won(it.total)} 결제 승인</button><button class="sm" data-reject="${it.order_id}">안 살래요</button></div></div>`;
+  if (it.status === "blocked") return `<div class="line">🚫 <b>${name}</b> — 결제하지 않았어요. 누가 승인해도 서버가 거절합니다.</div>`;
+  if (it.status === "not_found") return `<div class="line">🔎 ‘${name}’ — 맞는 상품을 못 찾아 자녀에게 물어봐요</div>`;
+  if (it.status === "rejected") return `<div class="line">— ${name}: 사지 않기로 했어요</div>`;
+  if (it.status === "cancelled") return `<div class="line">↩️ ${name}: 취소·환불했어요</div>`;
+  if (["ready_for_vooy", "authorized"].includes(it.status)) return `<div class="line">🛒 ${name} — vooy가 결제할 차례예요</div>`;
+  return `<div class="line">${name}: ${esc(it.status)}</div>`;
+}
+
+async function renderOutcome(o, animate) {
+  const gap = () => animate ? sleep(450) : null;
+  const reqs = o.requests || [], orders = o.orders || [];
+  setStep("extract", "done", `<span class="badge violet">${esc(o.engine || "")}</span> ${esc(o.summary)}` +
+    (reqs.length ? `<ul class="items">${reqs.map(r => `<li><b>${esc(r.item)}</b>${r.quantity > 1 ? ` ×${r.quantity}` : ""} — <q>${esc(r.evidence)}</q></li>`).join("")}</ul>` : "") +
+    (o.other_tasks?.length ? `<div class="sub" style="margin-top:6px">구매 외 부탁: ${o.other_tasks.map(esc).join(" · ")}</div>` : "") +
+    (o.scam_signals?.length ? `<div class="warn">⚠️ 사칭 의심 표현: ${o.scam_signals.map(esc).join(", ")}</div>` : ""));
+  await gap();
+  if (!orders.length) {
+    ["choose", "decide", "pay"].forEach(k => setStep(k, "skip", "살 물건이 없어요."));
+  } else {
+    setStep("choose", "done", orders.map(it => it.product
+      ? `<div class="line"><b>${esc(it.product)}</b> ×${it.quantity} · ${won(it.total)}<div class="sub">${esc((it.reasons || []).join(" · "))}</div></div>`
+      : `<div class="line">‘${esc(it.item)}’ — 맞는 상품을 못 찾았어요</div>`).join(""));
+    await gap();
+    setStep("decide", "done", orders.map(it => `<div class="line"><span class="badge ${it.decision}">${DEC[it.decision] || esc(it.decision)}</span> ${esc(it.product || it.item)} <span class="sub">— ${esc(it.reason)}</span></div>`).join(""));
+    await gap();
+    const paid = orders.some(it => it.status === "paid"), wait = orders.some(it => ["awaiting_approval", "payment_failed"].includes(it.status));
+    const blocked = orders.some(it => it.status === "blocked");
+    setStep("pay", paid ? "done" : wait ? "wait" : blocked ? "stop" : "skip", orders.map(payLine).join(""));
+  }
+  await gap();
+  const sms = o.sms_to_mom || [];
+  setStep("sms", sms.length ? "done" : "skip", sms.length
+    ? `<div class="chat">${sms.map(t => `<div class="bubble me">${esc(t)}</div>`).join("")}</div><div class="sub small" style="margin-top:4px">모의 발송 · 실제로는 사전등록한 서비스 번호 + 자녀 이름으로 보냅니다</div>`
+    : "보낼 문자가 없어요.");
+  await gap();
+  setStep("child", o.digest_text ? "done" : "skip", o.digest_text
+    ? `<div class="chat"><div class="bubble vooy">${esc(o.digest_text)}</div></div><div class="sub small" style="margin-top:4px">${o.digest_delivered ? `vooy로 전달됨 (${esc(o.digest_delivered)})` : "자녀의 vooy가 5분 확인 때 가져가요 · 웹훅을 켜면 바로 보냅니다"}</div>`
+    : "정리할 부탁이 없어요.");
+}
+
+async function showCall(id) {
+  const c = S.st.calls.find(x => x.id === id); if (!c) return;
+  S.current = id; resetSteps();
+  setStep("recv", "done", `${esc(c.source)} · ${esc(c.received_at.replace("T", " "))}` + (c.aidot?.todos?.length ? ` · 에이닷 할일 ${c.aidot.todos.length}건` : ""));
+  setStep("filter", "done", "등록된 엄마 번호와의 통화예요.");
+  renderRecent();
+  await renderOutcome(await api(`/api/calls/${id}/outcome`), false);
+  $("#steps").scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+function renderRecent() {
+  const calls = (S.st?.calls || []).slice(0, 8);
+  $("#recent").innerHTML = calls.length ? calls.map(c => `<button class="recent ${c.id === S.current ? "on" : ""}" data-call="${c.id}">
+      <b>${esc(c.caller)}</b> · ${esc((c.received_at || "").slice(11, 16))} · <span class="sub">${esc(c.source)}</span></button>`).join("")
+    : `<div class="sub">아직 없어요. 위에서 통화를 끝내 보거나, 아래 curl로 직접 호출해 보세요.</div>`;
+}
+
+async function refreshState() {
+  try { S.st = await api("/api/state"); } catch (_) { return; }
+  for (const c of S.st.calls) {
+    if (S.seen.has(c.id)) continue;
+    S.seen.add(c.id);
+    if (!c.source.includes("모의")) toast("웹훅으로 새 통화가 들어왔어요 — ‘최근 통화’에서 결과를 보세요");
+  }
+  renderRecent();
+}
+
+function renderCurl() {
+  const base = location.origin;
+  const body = {call_id: S.testId, from_number: momNumber() || "<엄마 번호>", to_number: childNumber() || "<내 번호>",
+    ended_at: "2026-11-17T14:10:00+09:00", summary: "엄마가 쌀 10kg과 김을 부탁함", todos: ["장보기: 쌀 10kg, 김"],
+    transcript: "엄마: 쌀이 다 떨어졌네. 늘 먹던 10kg짜리 하나 시켜줘.\n나: 응 알았어.\n엄마: 김도 다 먹었다. 김도 좀 사 줘."};
+  $("#curl1").innerHTML = codeBlock(`curl -X POST ${base}/v1/telco/call-ended \\\n  -H "Authorization: Bearer $TELCO_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(body, null, 2)}'`);
+  $("#curl2").innerHTML = codeBlock(`curl ${base}/v1/telco/calls/${S.testId} \\\n  -H "Authorization: Bearer $TELCO_TOKEN"`);
+  $("#contract").innerHTML = codeBlock(`POST ${base}/v1/telco/call-ended
+Authorization: Bearer <통신사 토큰>
+Content-Type: application/json
+X-Telco-Timestamp: 1794031010                     (선택: 서명을 켠 경우)
+X-Telco-Signature: sha256=<HMAC-SHA256(서명 비밀, "<timestamp>.<본문>")>
+
+{
+  "call_id": "skt-20261117-0001",
+  "from_number": "010-2345-6789",
+  "to_number": "010-1234-5678",
+  "ended_at": "2026-11-17T14:10:00+09:00",
+  "summary": "엄마가 휴지·계란과 전기요를 부탁함",
+  "todos": ["장보기: 휴지 30롤, 계란 한 판", "장보기: 전기요"],
+  "transcript": "엄마: 휴지가 다 떨어졌어. 저번에 시켜준 30롤짜리 그거 좋더라.\\n나: 알았어"
+}`, {copy: false});
+}
+
+function renderShortcut() {
+  const f = S.st.family;
+  $("#shortcut").innerHTML = `
+    <li><b>단축어</b> 앱 → <b>+</b> → 이름 <code>oba로 보내기</code> → ⓘ에서 <b>공유 시트에서 보기</b> 켜기 (받는 유형: 텍스트·파일)</li>
+    <li>동작 <b>URL 콘텐츠 가져오기</b>: URL <code>${esc(location.origin)}/v1/calls</code>, 방법 <code>POST</code>,
+      헤더 <code>Authorization</code> = <code>Bearer ${esc(f.upload_token)}</code> (이 체험 계정 전용), 요청 본문 <b>양식</b>: 파일 <code>file</code> = 단축어 입력</li>
+    <li>통화가 끝나면 에이닷 통화 기록 → <b>공유</b> → <b>oba로 보내기</b>. 위 ‘최근 통화’에 ‘에이닷 공유 (1탭)’으로 들어옵니다.</li>`;
+}
+
+document.addEventListener("click", async e => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.key) return pickScenario(SCEN.find(s => s.key === t.dataset.key));
+  if (t.dataset.call) return showCall(t.dataset.call);
+  if (t.id === "newacct") {
+    t.disabled = true;
+    S.st = await ensureAccount("skt", true); S.current = null; S.seen = new Set(S.st.calls.map(c => c.id));
+    renderAccount(); pickScenario(S.scen); renderCurl(); renderShortcut(); resetSteps(); renderRecent();
+    return toast("새 체험 계정을 만들었어요");
+  }
+  const id = t.dataset.approve || t.dataset.reject; if (!id) return;
+  t.disabled = true;
+  try {
+    await api(`/api/orders/${id}/${t.dataset.approve ? "approve" : "reject"}`, {method: "POST"});
+    toast(t.dataset.approve ? "승인했어요 — 테스트 결제 후 엄마께 문자를 보냈어요" : "주문하지 않기로 했어요");
+  } catch (err) { toast("처리하지 못했어요: " + err.message); }
+  if (S.current) await renderOutcome(await api(`/api/calls/${S.current}/outcome`), false);
+});
+$("#hangup").addEventListener("click", hangup);
+$("#tx").addEventListener("input", () => showRequest(payloadFor(sample(S.scen.id), $("#tx").value.trim() || sample(S.scen.id).transcript)));
+
+(async function init() {
+  renderSteps();
+  const [pub, samples] = await Promise.all([api("/api/public"), api("/api/samples")]);
+  S.samples = samples;
+  $("#engine").textContent = "분석 엔진 " + pub.llm; $("#engine2").textContent = pub.llm;
+  $("#signing").textContent = pub.telco_signing ? "서명 검증 켜짐" : "토큰만 사용(서명 꺼짐)";
+  $("#scen").innerHTML = SCEN.map(s => `<button class="pill" data-key="${s.key}">${esc(s.label)}</button>`).join("");
+  try { S.st = await ensureAccount("skt"); }
+  catch (e) { $("#acct").textContent = "체험 계정을 만들지 못했어요: " + e.message; return; }
+  S.st.calls.forEach(c => S.seen.add(c.id));
+  renderAccount(); pickScenario(SCEN[0]); renderCurl(); renderShortcut(); renderRecent();
+  setInterval(refreshState, 3000);
+})();
+</script>
+</body>
+</html>

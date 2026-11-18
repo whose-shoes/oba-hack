@@ -8,17 +8,18 @@ import json
 import os
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import account, catalog, family, ingest, llm, mcp_server, notify, pipeline, policy, store, telco
-from .config import data_dir
+from . import account, catalog, family, ingest, llm, mcp_server, notify, pipeline, policy, ratelimit, samples, store, telco
+from .config import data_dir, demo_mode, telco_signing_secret
 
 STATIC = Path(__file__).parent / "static"
-SAMPLES = Path(__file__).parent / "samples"
 
 async def _retry_loop() -> None:
     """웹훅 실패분·웹훅을 나중에 켰을 때 쌓인 정리본을 주기적으로 다시 보낸다."""
@@ -43,6 +44,18 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="don't call me, Mama", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.middleware("http")
+async def revalidate_pages(request: Request, call_next):
+    """페이지·정적 파일은 매번 다시 확인하게 한다 (재배포 뒤 옛 화면이 캐시에서 뜨지 않도록, 바뀐 게 없으면 304)."""
+    response = await call_next(request)
+    if request.url.path in ("/", "/skt", "/vooy") or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 app.include_router(ingest.router)
 app.include_router(telco.router)
 app.router.routes.extend(mcp_server.http_app.routes)
@@ -56,6 +69,52 @@ def health() -> dict:
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/skt")
+def skt_page() -> FileResponse:
+    """SKT용 시작 페이지: 에이닷 통화 종료 → 결제까지 직접 체험하고, 연동 명세를 본다."""
+    return FileResponse(STATIC / "skt.html")
+
+
+@app.get("/vooy")
+def vooy_page() -> FileResponse:
+    """vooy 팀용 시작 페이지: MCP 연결·레시피·도구 목록과 체험 계정."""
+    return FileResponse(STATIC / "vooy.html")
+
+
+def _limit(request: Request, key: str, limit: int, window_sec: float) -> None:
+    ip = ratelimit.client_ip(request.headers, request.client.host if request.client else "")
+    if not ratelimit.allow(f"{key}:{ip}", limit, window_sec):
+        raise HTTPException(429, "요청이 너무 많아요. 잠시 후 다시 시도해 주세요.")
+
+
+@app.get("/api/public")
+async def public_info() -> dict:
+    """시작 페이지용 공개 정보 (토큰·개인정보 없음)."""
+    return {
+        "demo": demo_mode(),
+        "llm": llm.provider_label(),
+        "signup_mcp_url": mcp_server.public_url(),
+        "public_url": os.environ.get("OBA_PUBLIC_URL", "").rstrip("/"),
+        "telco_signing": bool(telco_signing_secret()),
+        "tools": await mcp_server.tool_catalog(),
+    }
+
+
+class DemoIn(BaseModel):
+    audience: str = "skt"   # skt: 우리 서버가 테스트 결제 | vooy: vooy가 1회용 토큰으로 테스트몰 결제
+
+
+@app.post("/api/demo", status_code=201)
+def start_demo(request: Request, body: DemoIn | None = None) -> dict:
+    """체험용 샌드박스 계정을 바로 만든다 (데모 번호·배송지·엄마 메모가 채워져 있음)."""
+    if not demo_mode():
+        raise HTTPException(404, "not found")
+    _limit(request, "demo", 20, 3600)
+    vooy = (body.audience if body else "") == "vooy"
+    fam = family.register_demo("vooy 체험" if vooy else "체험", payment_executor="vooy" if vooy else "server")
+    return family.public(fam)
 
 
 # ---------- 계정: 개인 대시보드 토큰으로 판별 ----------
@@ -95,9 +154,18 @@ def state(fam: dict = Depends(current_account)) -> dict:
         "signup_mcp_url": mcp_server.public_url(),
         "vooy_pending": len(notify.pending(fid)),
         "vooy": notify.public_settings(fid),
-        "history": [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")}
-                    for h in catalog.history("엄마")],
+        "history": _history(fid, fam["parents"][0]["label"]),
     }
+
+
+def _history(fid: str, label: str) -> list[dict]:
+    """화면용 구매 이력: 상품별로 묶어 가장 최근 날짜와 횟수."""
+    out: dict[str, dict] = {}
+    for h in pipeline.purchase_history(fid, label):
+        cur = out.setdefault(h["product_id"], {"product_id": h["product_id"], "date": "", "times": 0,
+                                                "name": (catalog.product(h["product_id"]) or {}).get("name")})
+        cur["date"], cur["times"] = max(cur["date"], h["date"]), cur["times"] + 1
+    return sorted(out.values(), key=lambda h: h["date"], reverse=True)
 
 
 class DemoCall(BaseModel):
@@ -133,13 +201,15 @@ def set_transcript(call_id: str, body: TranscriptIn, background: BackgroundTasks
 
 
 @app.get("/api/samples")
-def samples() -> list[dict]:
-    out = []
-    for p in sorted(SAMPLES.glob("*.txt")):
-        lines = p.read_text().splitlines()
-        title, caller = lines[0].lstrip("# ").strip(), lines[1].split(":", 1)[1].strip()
-        out.append({"id": p.stem, "title": title, "caller": caller, "transcript": "\n".join(lines[2:]).strip()})
-    return out
+def sample_calls() -> list[dict]:
+    return list(samples.all_samples())
+
+
+@app.get("/api/calls/{call_id}/outcome")
+def call_outcome(call_id: str, fam: dict = Depends(current_account)) -> dict:
+    """통화 한 건이 어떻게 처리됐는지 (진행 단계 표시용)."""
+    _own("call", call_id, fam)
+    return telco.outcome(call_id)
 
 
 def _act(fn, oid: str, *args) -> dict:
@@ -223,7 +293,8 @@ class SignupIn(BaseModel):
 
 
 @app.post("/api/families", status_code=201)
-def signup(body: SignupIn) -> dict:
+def signup(body: SignupIn, request: Request) -> dict:
+    _limit(request, "signup", 20, 3600)
     if any(f["child_phone"] == family.normalize_phone(body.child_phone) for f in family.families()):
         raise HTTPException(409, "이미 가입된 번호예요. 가입할 때 받은 개인 대시보드 링크로 들어와 주세요.")
     try:
@@ -249,21 +320,31 @@ class SimCall(BaseModel):
     who: str = "parent"          # parent | unknown
     direction: str = "incoming"  # incoming(엄마→나) | outgoing(나→엄마)
     unknown_number: str = "010-9876-5432"
+    summary: str = ""            # 에이닷 통화 요약 (선택)
+    todos: list[str] = []        # 에이닷 할일 (선택)
 
 
 @app.post("/api/simulate/call-ended", status_code=202)
-def simulate_call(body: SimCall, background: BackgroundTasks, fam: dict = Depends(current_account)) -> dict:
+def simulate_call(body: SimCall, request: Request, background: BackgroundTasks,
+                  fam: dict = Depends(current_account)) -> dict:
     """에이닷이 내 계정 번호의 통화 종료 웹훅을 보낸 것처럼 처리한다 (실제 웹훅과 같은 telco.receive)."""
     if not body.transcript.strip():
         raise HTTPException(400, "empty transcript")
+    _limit(request, f"sim:{fam['id']}", 60, 3600)
     other = fam["parents"][0]["phone"] if body.who == "parent" else body.unknown_number
     a, b = (other, fam["child_phone"]) if body.direction == "incoming" else (fam["child_phone"], other)
-    ev = telco.CallEnded(call_id=f"sim-{uuid.uuid4().hex[:10]}", from_number=a, to_number=b,
-                         transcript=body.transcript)
+    try:
+        ev = telco.CallEnded(call_id=f"sim-{uuid.uuid4().hex[:10]}", from_number=family.pretty_phone(a),
+                             to_number=family.pretty_phone(b),
+                             ended_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+                             summary=body.summary.strip() or None, todos=body.todos or None,
+                             transcript=body.transcript)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     result, call_id = telco.receive(ev, source="SKT 망 연동 모의")
     if call_id:
         background.add_task(pipeline.process_call, call_id)
-    return result
+    return result | {"sent": ev.model_dump(exclude_none=True)}
 
 
 # ---------- vooy 웹훅 설정 · 테스트 · 모의 수신함 ----------
@@ -283,36 +364,49 @@ def vooy_settings(fam: dict = Depends(current_account)) -> dict:
 @app.put("/api/vooy")
 def vooy_update(body: VooySettingsIn, fam: dict = Depends(current_account)) -> dict:
     try:
-        notify.update_settings(body.model_dump(exclude_none=True))
+        notify.update_settings(body.model_dump(exclude_none=True), fam["id"])
     except ValueError as e:
         raise HTTPException(400, str(e))
-    notify.retry_pending()  # 웹훅을 막 켰다면 쌓여 있던 정리본을 바로 보낸다
+    notify.retry_pending(fam["id"])  # 웹훅을 막 켰다면 쌓여 있던 정리본을 바로 보낸다
     return notify.public_settings(fam["id"])
 
 
 @app.post("/api/vooy/test")
 def vooy_test(fam: dict = Depends(current_account)) -> dict:
     account.log_family.set(fam["id"])
-    return notify.send_test()
+    return notify.send_test(fam["id"])
 
 
-@app.post("/mock/vooy/webhook")
+MOCK_PATH = "/mock/vooy/webhook"
+
+
+@app.post(MOCK_PATH)
 async def mock_vooy_webhook(request: Request) -> dict:
-    """데모용 '모의 vooy': 우리가 보낸 웹훅을 vooy처럼 받아 인증·서명을 확인하고 도착 메시지를 남긴다."""
+    """데모용 '모의 vooy': 우리가 보낸 웹훅을 vooy처럼 받아 인증·서명을 확인하고 도착 메시지를 남긴다.
+
+    모의 수신함을 웹훅 주소로 고른 계정만 받는다. 그 계정의 토큰·서명 비밀로 검증한다.
+    """
     body = await request.body()
-    s = notify.settings()
-    if s["push_token"] and request.headers.get("authorization") != f"Bearer {s['push_token']}":
+    try:
+        data = json.loads(body)
+        fid = (data.get("data") or {}).get("family_id")
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "bad payload")
+    s = notify.settings(fid) if fid and family.get(fid) else None
+    if s is None or not s["push_url"].split("?")[0].endswith(MOCK_PATH):
+        raise HTTPException(404, "not found")
+    if s["push_token"] and not hmac.compare_digest(request.headers.get("authorization", "").encode(),
+                                                   f"Bearer {s['push_token']}".encode()):
         raise HTTPException(401, "bad token")
     verified = None
     if s["signing_secret"]:
         expect = notify.sign(s["signing_secret"], request.headers.get("x-oba-timestamp", ""), body)
-        verified = hmac.compare_digest(request.headers.get("x-oba-signature", ""), expect)
+        verified = hmac.compare_digest(request.headers.get("x-oba-signature", "").encode(), expect.encode())
         if not verified:
             raise HTTPException(401, "bad signature")
-    data = json.loads(body)
     store.log("vooy_mock", request.headers.get("x-oba-delivery", ""),
               "📱 vooy(모의)에 도착" + (" · 서명 확인" if verified else "") + ": " + data.get("text", ""),
-              family_id=(data.get("data") or {}).get("family_id"))
+              family_id=fid)
     return {"ok": True, "signature_verified": verified}
 
 

@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import os
 import secrets
+import uuid
 from datetime import datetime
 from typing import Any
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import ToolAnnotations
 
-from . import account, catalog, family, notify, pipeline, policy, store
-from .config import josa
+from . import account, catalog, family, notify, pipeline, policy, ratelimit, samples, store, telco
+from .config import demo_mode, josa
 
 INSTRUCTIONS = """don't call me, Mama: 엄마(부모님)와 자녀가 통화를 마치면 엄마의 부탁을 정리해 주문까지 돕는 서비스입니다.
 - 처음 연결했거나 상태가 궁금하면 get_family_status를 먼저 부르세요. 등록 전이면 사용자에게 엄마 호칭·엄마 전화번호·
@@ -31,6 +32,14 @@ INSTRUCTIONS = """don't call me, Mama: 엄마(부모님)와 자녀가 통화를 
 - [자동 확인] 등록이 끝났거나 응답에 auto_check_needed=true가 있으면, vooy의 반복 작업(일정) 기능으로
   5분마다 get_new_parent_requests를 실행하는 반복 작업을 만드세요(setup_auto_check가 문구를 줍니다).
   반복 실행 때는 has_new가 true일 때만 사용자에게 말하고, false면 조용히 있으세요."""
+
+DEMO_INSTRUCTIONS = """
+- [체험 서버] demo_parent_call 도구는 체험용입니다. 실제 서비스에서는 에이닷 통화가 끝나면 정리본이 저절로 생깁니다.
+  사용자가 "데모 통화 만들어줘", "엄마랑 통화한 걸로 쳐줘"라고 하면 demo_parent_call을 부르고,
+  바로 이어서 get_new_parent_requests로 정리본을 가져와 보여 주세요. 처음 등록할 때 번호가 없으면 아무 번호나 괜찮다고 안내하세요."""
+
+if demo_mode():
+    INSTRUCTIONS += DEMO_INSTRUCTIONS
 
 server = MCPServer(name="dont-call-me-mama", title="don't call me, Mama · 엄마 부탁 대신 처리", instructions=INSTRUCTIONS)
 
@@ -64,6 +73,16 @@ def _account(ctx: Context | None) -> dict | None:
                 fam = family.by_mcp_token(token)
     account.log_family.set(fam["id"] if fam else None)
     return fam
+
+
+def _client_ip(ctx: Context | None) -> str:
+    try:
+        req = ctx.request_context.request if ctx is not None else None
+    except Exception:
+        req = None
+    if req is None:
+        return "local"
+    return ratelimit.client_ip(req.headers, req.client.host if getattr(req, "client", None) else "")
 
 
 def _need_account() -> dict[str, Any]:
@@ -176,8 +195,16 @@ def setup_parent(
         if fam is None:  # 공용(가입용) 주소 → 새 계정
             need = [n for n, v in (("엄마 전화번호", parent_phone), ("내 전화번호", child_phone)) if not v]
             if need:
-                return {"ok": False, "need": need,
-                        "message": f"처음 연결이라 {', '.join(need)}가 필요해요. 알려 주시면 바로 등록할게요."}
+                out = {"ok": False, "need": need,
+                       "message": f"처음 연결이라 {', '.join(need)}가 필요해요. 알려 주시면 바로 등록할게요."}
+                if demo_mode():
+                    me, mom = family.demo_numbers()
+                    out["demo_numbers"] = {"child_phone": family.pretty_phone(me), "parent_phone": family.pretty_phone(mom)}
+                    out["message"] += (f" 체험 중이라면 아무 번호나 괜찮아요 — 예: 엄마 {family.pretty_phone(mom)}, "
+                                       f"나 {family.pretty_phone(me)}.")
+                return out
+            if not ratelimit.allow(f"mcp-signup:{_client_ip(ctx)}", 20, 3600):
+                return {"ok": False, "message": "가입 요청이 너무 많아요. 잠시 후 다시 시도해 주세요."}
             if any(f["child_phone"] == family.normalize_phone(child_phone) for f in family.families()):
                 return {"ok": False, "already_registered": True,
                         "message": "이미 가입된 번호예요. 가입할 때 받은 개인 연결 주소로 vooy를 연결해 주세요 "
@@ -186,6 +213,8 @@ def setup_parent(
                 "label": parent_label or "엄마", "phone": parent_phone, "name": parent_name, "address": address,
                 "birthday": birthday, "notes": [note] if note else [],
             }])
+            # vooy로 가입한 계정은 vooy가 결제를 실행한다 (서버는 승인·한도·차단만, 결제는 테스트몰 1회용 토큰)
+            policy.update({"payment_executor": "vooy", "vooy_checkout": "test_mall"}, fam["id"])
             account.log_family.set(fam["id"])
             label = fam["parents"][0]["label"]
             links = family.links(fam)
@@ -309,6 +338,18 @@ def get_new_parent_requests(ctx: Context) -> dict[str, Any]:
     }
 
 
+STATUS_WHY = {
+    "blocked": "🚫 결제를 막은 주문이에요: {reason} {caller}께 직접 전화해 확인해 보세요.",
+    "paid": "이미 결제한 주문이에요. 취소하려면 cancel_order를 쓰세요.",
+    "cancelled": "이미 취소·환불한 주문이에요.",
+    "rejected": "사지 않기로 한 주문이에요.",
+    "not_found": "맞는 상품을 못 찾은 부탁이에요. 사용자에게 어떤 상품을 원하는지 물어봐 주세요.",
+    "authorized": "이미 구매 승인한 주문이에요. 받은 payment_token으로 checkout_order를 부르세요.",
+    "awaiting_approval": "아직 결제 전이에요. 사용자가 동의하면 approve_order를 부르세요.",
+    "ready_for_vooy": "아직 결제 전이에요. approve_order로 구매 승인을 받으세요.",
+}
+
+
 def _result(fn, ref: str, statuses: tuple[str, ...], fid: str, *args) -> dict[str, Any]:
     o = _find_order(ref, statuses, fid)
     if o is None:
@@ -316,7 +357,9 @@ def _result(fn, ref: str, statuses: tuple[str, ...], fid: str, *args) -> dict[st
     try:
         return {"ok": True, "order": _brief(fn(o["id"], *args))}
     except ValueError as e:
-        return {"ok": False, "order": _brief(o), "message": f"처리할 수 없어요: {e} ({o.get('decision_reason', '')})"}
+        why = STATUS_WHY.get(o["status"])
+        msg = why.format(reason=o.get("decision_reason", ""), caller=o.get("caller", "엄마")) if why else f"처리할 수 없어요: {e}"
+        return {"ok": False, "order": _brief(o), "message": msg}
 
 
 def _vooy_pays(fid: str) -> bool:
@@ -329,7 +372,8 @@ def _vooy_pays(fid: str) -> bool:
     description=(
         "엄마 부탁 주문을 승인합니다. 사용자가 상품·수량·금액을 본 뒤 '응 결제해', '그거 사줘', '주문해'처럼 분명히 동의했을 때 부르세요. "
         "🛒(늘 사던 소액, 자동결제 범위) 주문은 확인 없이 바로 불러도 됩니다. order_id(또는 상품 이름)를 넣고, 대안 상품으로 바꾸려면 product_id를 넣으세요. "
-        "승인되면 구매 정보(상품·수량·최대 금액·배송지)를 돌려줍니다. 그 범위 안에서 vooy가 직접 주문·결제하고, 끝나면 report_purchase로 결과를 알려 주세요. "
+        "서버가 결제하는 계정이면 바로 테스트 결제까지 끝납니다. vooy가 결제하는 계정이면 구매 승인(상품·수량·최대 금액·배송지)과 "
+        "이 주문에만 쓰는 1회용 결제 토큰을 돌려주니, 이어서 checkout_order로 결제를 마치세요. "
         "상품권·사칭 의심 등 차단된 주문은 서버가 승인하지 않습니다."
     ),
     annotations=PAY,
@@ -348,50 +392,7 @@ def approve_order(order_id: str, product_id: str = "", ctx: Context | None = Non
     if _vooy_pays(fid):
         r = _result(pipeline.authorize, order_id, allowed, fid)
         if r["ok"]:
-            o = store.get("order", r["order"]["order_id"])
-            r["purchase"] = {
-                "order_id": o["id"], "mandate_id": o["mandate"]["id"], "product": o["product"]["name"],
-                "search_keywords": f"{o['request'].get('item', '')} {o['request'].get('detail', '')}".strip(),
-                "quantity": o["quantity"], "max_amount": o["total"], "ship_to": o.get("ship_to", ""),
-                "recipient": o["caller"],
-            }
-            pol = policy.get(fid)
-            card = pol["family_payment_method"]
-            r["checkout"] = {
-                "merchant": pol["test_merchant"], "tool": "checkout_order",
-                "payment_token": o["mandate"]["payment_token"], "expires_at": o["mandate"]["expires_at"],
-                "payment_method": f"{card['label']} {card['brand']} •••• {card['last4']}",
-                "max_amount": o["mandate"]["max_amount"], "single_use": True,
-            }
-            ai = o.get("ai_pick") or {}
-            item = ai.get("search_keyword") or (o["product"].get("keywords") or [None])[0] \
-                or o["request"].get("item") or o["product"]["name"]
-            link, link_type, shop = catalog.buy_link(o["product"], item)
-            if link_type != "product":  # 기본: 링크 없이 vooy가 네이버 스마트스토어에서 직접 찾고 산다
-                link, shop = "", "네이버 스마트스토어"
-            r["handoff"] = {
-                "buy_here": link, "link_type": link_type, "shop": shop,
-                "product_on_link": o["product"].get("link_name", ""), "price_on_link": o["product"].get("link_price", 0),
-                "what": item, "quantity": o["quantity"], "max_amount": o["mandate"]["max_amount"],
-                "buy_criteria": ai.get("buy_criteria", []), "why": ai.get("reason", ""),
-                "ship_to": o.get("ship_to", ""), "recipient": o["caller"],
-                "where": shop, "reference_product": o["product"]["name"],
-                "mom_said": o["request"].get("evidence", ""),
-                "after": "report_purchase(order_id, success, merchant, paid_amount, order_number, product_name, message_to_mom)",
-            }
-            r["message"] = ((f"이 {shop} 상품 링크에서 1개 구매하세요(테스트 결제): {link} — " if link_type == "product" else "")
-                            + f"구매 승인: {item} ×{o['quantity']}, 최대 {won(o['mandate']['max_amount'])}"
-                            + (f", 배송지 {o['ship_to']}" if o.get("ship_to") else "")
-                            + (f". 고를 때 기준: {', '.join(ai['buy_criteria'])}" if ai.get("buy_criteria") else "")
-                            + (f". 위 {shop} 링크의 상품을 주문·결제하세요(테스트 결제). " if link_type == "product" else
-                               f". vooy가 네이버 스마트스토어에서 '{item}'을(를) 찾아 최대 금액 이하의 평점 높은 상품을 골라 주문·결제하세요(테스트 결제). ")
-                            + f"끝나면 report_purchase로 성공 여부, merchant(예: {shop if link_type == 'product' else '네이버 스마트스토어'}), "
-                            "paid_amount, order_number, 산 상품명(product_name — 없으면 note에), 엄마께 보낼 문자(message_to_mom)를 알려 주세요. "
-                            f"참고 상품: {o['product']['name']}. 우리 테스트몰로 결제하려면 checkout_order(order_id, payment_token)도 쓸 수 있어요.")
-            if not o.get("ship_to"):
-                r["missing"] = ["ship_to"]
-                r["message"] += (f" 단, {o['caller']} 배송지가 등록돼 있지 않아요. 주문 전에 사용자에게 배송지를 물어 "
-                                 "setup_parent(address=...)로 저장한 뒤 그 주소로 주문하세요.")
+            r.update(_vooy_purchase(store.get("order", r["order"]["order_id"]), policy.get(fid)))
         return r
     r = _result(pipeline.approve, order_id, allowed, fid)
     if r["ok"]:
@@ -404,16 +405,75 @@ def approve_order(order_id: str, product_id: str = "", ctx: Context | None = Non
     return r
 
 
+def _vooy_purchase(o: dict, pol: dict) -> dict[str, Any]:
+    """vooy가 결제할 때 넘기는 구매 승인(위임 증서). 기본은 우리 테스트몰 + 1회용 토큰 (실제 결제 없음)."""
+    card = pol["family_payment_method"]
+    m = o["mandate"]
+    out: dict[str, Any] = {
+        "purchase": {
+            "order_id": o["id"], "mandate_id": m["id"], "product": o["product"]["name"],
+            "search_keywords": f"{o['request'].get('item', '')} {o['request'].get('detail', '')}".strip(),
+            "quantity": o["quantity"], "max_amount": o["total"], "ship_to": o.get("ship_to", ""), "recipient": o["caller"],
+        },
+        "checkout": {
+            "merchant": pol["test_merchant"], "tool": "checkout_order", "payment_token": m["payment_token"],
+            "expires_at": m["expires_at"], "payment_method": f"{card['label']} {card['brand']} •••• {card['last4']}",
+            "max_amount": m["max_amount"], "single_use": True,
+        },
+    }
+    head = (f"구매 승인: {o['product']['name']} ×{o['quantity']}, 최대 {won(m['max_amount'])}"
+            + (f", 배송지 {o['ship_to']}" if o.get("ship_to") else ""))
+    if pol.get("vooy_checkout", "test_mall") != "external":
+        out["next_action"] = {"tool": "checkout_order", "order_id": o["id"], "payment_token": m["payment_token"]}
+        out["message"] = (head + f". 이제 checkout_order(order_id=\"{o['id']}\", payment_token=\"{m['payment_token']}\")로 "
+                          f"{pol['test_merchant']} 결제를 마치세요 — 카드번호 없이, 이 주문·이 금액에 30분 동안 한 번만 쓰는 토큰이에요. "
+                          "message_to_mom에 엄마께 보낼 문자를 자식 말투로 1~2문장 적어 주세요(비우면 기본 문구).")
+    else:  # 실제 쇼핑몰(네이버·11번가)에서 vooy가 직접 산다
+        ai = o.get("ai_pick") or {}
+        item = ai.get("search_keyword") or (o["product"].get("keywords") or [None])[0] \
+            or o["request"].get("item") or o["product"]["name"]
+        link, link_type, shop = catalog.buy_link(o["product"], item)
+        if link_type != "product":  # 링크가 없으면 vooy가 네이버 스마트스토어에서 직접 찾고 산다
+            link, shop = "", "네이버 스마트스토어"
+        out["handoff"] = {
+            "buy_here": link, "link_type": link_type, "shop": shop,
+            "product_on_link": o["product"].get("link_name", ""), "price_on_link": o["product"].get("link_price", 0),
+            "what": item, "quantity": o["quantity"], "max_amount": m["max_amount"],
+            "buy_criteria": ai.get("buy_criteria", []), "why": ai.get("reason", ""),
+            "ship_to": o.get("ship_to", ""), "recipient": o["caller"],
+            "where": shop, "reference_product": o["product"]["name"],
+            "mom_said": o["request"].get("evidence", ""),
+            "after": "report_purchase(order_id, success, merchant, paid_amount, order_number, product_name, message_to_mom)",
+        }
+        out["message"] = ((f"이 {shop} 상품 링크에서 1개 구매하세요: {link} — " if link_type == "product" else "")
+                          + f"구매 승인: {item} ×{o['quantity']}, 최대 {won(m['max_amount'])}"
+                          + (f", 배송지 {o['ship_to']}" if o.get("ship_to") else "")
+                          + (f". 고를 때 기준: {', '.join(ai['buy_criteria'])}" if ai.get("buy_criteria") else "")
+                          + (f". 위 {shop} 링크의 상품을 주문·결제하세요. " if link_type == "product" else
+                             f". vooy가 네이버 스마트스토어에서 '{item}'을(를) 찾아 최대 금액 이하의 평점 높은 상품을 골라 주문·결제하세요. ")
+                          + "실제 쇼핑몰이라 실제 결제가 될 수 있으니 사용자에게 한 번 더 확인하세요. "
+                          + f"끝나면 report_purchase로 성공 여부, merchant(예: {shop}), "
+                          "paid_amount, order_number, 산 상품명(product_name — 없으면 note에), 엄마께 보낼 문자(message_to_mom)를 알려 주세요. "
+                          f"참고 상품: {o['product']['name']}. 테스트몰로 결제하려면 checkout_order(order_id, payment_token)를 쓰세요.")
+    if not o.get("ship_to"):
+        out["missing"] = ["ship_to"]
+        out["message"] += (f" 단, {o['caller']} 배송지가 등록돼 있지 않아요. 주문 전에 사용자에게 배송지를 물어 "
+                           "setup_parent(address=...)로 저장한 뒤 그 주소로 주문하세요.")
+    return out
+
+
 @server.tool(
     name="checkout_order",
     title="테스트몰에서 결제",
     description=(
-        "approve_order로 받은 1회용 payment_token으로 don't call me, Mama 테스트몰에서 주문·결제합니다. "
-        "카드번호나 쇼핑몰 로그인 없이 토큰만 넣으면 됩니다. 결제가 끝나면 주문번호를 돌려주고 엄마께 '주문했어요' 문자가 갑니다."
+        "approve_order로 받은 1회용 payment_token으로 don't call me, Mama 테스트몰에서 주문·결제합니다(실제 결제 없음). "
+        "카드번호나 쇼핑몰 로그인 없이 토큰만 넣으면 됩니다. message_to_mom에 엄마께 보낼 문자를 자식 말투로 1~2문장 적으면 그대로 보내고"
+        "(예: '엄마, 전기요 시켰어~ 모레 와!'), 비우면 기본 문구로 보냅니다. 결제가 끝나면 주문번호를 돌려줍니다."
     ),
     annotations=PAY,
 )
-def checkout_order(order_id: str, payment_token: str, ctx: Context | None = None) -> dict[str, Any]:
+def checkout_order(order_id: str, payment_token: str, message_to_mom: str = "",
+                   ctx: Context | None = None) -> dict[str, Any]:
     fam = _account(ctx)
     if fam is None:
         return _need_account()
@@ -421,13 +481,15 @@ def checkout_order(order_id: str, payment_token: str, ctx: Context | None = None
     if o is None:
         return {"ok": False, "message": f"‘{order_id}’에 해당하는 승인된 주문이 없어요. 먼저 approve_order로 승인을 받아 주세요."}
     try:
-        o = pipeline.checkout(o["id"], payment_token)
+        o = pipeline.checkout(o["id"], payment_token, message_to_mom)
     except ValueError as e:
         return {"ok": False, "message": str(e)}
     rc = o["receipt"]
+    sent = (message_to_mom or "").strip()
     return {"ok": True, "order": _brief(o), "order_number": rc["order_number"], "paid_amount": rc["amount"],
-            "message": f"{o['product']['name']} {won(rc['amount'])} 결제 완료 (주문번호 {rc['order_number']}, {rc['method']}), "
-                       f"{o['product']['delivery']}. {o['caller']}께 ‘주문했어요’ 문자를 보냈어요."}
+            "message_to_mom": sent or None,
+            "message": f"{o['product']['name']} {won(rc['amount'])} 테스트 결제 완료 (주문번호 {rc['order_number']}, {rc['method']}), "
+                       f"{o['product']['delivery']}. {o['caller']}께 " + (f"‘{sent}’" if sent else "‘주문했어요’") + " 문자를 보냈어요."}
 
 
 @server.tool(
@@ -533,9 +595,88 @@ def update_delegation(
             return {"ok": False, "message": "금액은 500만원 이하로 알려 주세요."}
     if changes:
         policy.update(changes, fam["id"])
-        store.log("push_to_child", "policy", "맡기는 범위를 바꿨어요: " + ", ".join(f"{k}={v}" for k, v in changes.items()))
-    return {"ok": True, "delegation": _policy_brief(fam["id"]),
-            "message": "맡기는 범위를 바꿨어요." if changes else "바꿀 값을 알려 주세요."}
+        names = {"auto_approve_limit": "자동결제 한도", "monthly_budget": "월 예산", "max_per_order": "1회 최대"}
+        said = [f"{names[k]} {won(int(v))}" for k, v in changes.items() if k in names]
+        if "auto_approve_new_items" in changes:
+            said.append("처음 사는 상품도 " + ("자동결제" if changes["auto_approve_new_items"] else "확인 후 결제"))
+        text = "맡기는 범위를 바꿨어요: " + ", ".join(said)
+        store.log("push_to_child", "policy", text)
+        return {"ok": True, "delegation": _policy_brief(fam["id"]), "message": text}
+    return {"ok": True, "delegation": _policy_brief(fam["id"]), "message": "바꿀 값을 알려 주세요."}
+
+
+# ---------- 체험용 도구 (데모 모드에서만 등록) ----------
+
+SCENARIO_KEYS = (("사칭", "2-scam"), ("상품권", "2-scam"), ("보이스", "2-scam"), ("홍삼", "3-health"),
+                 ("건강", "3-health"), ("쌀", "3-health"), ("콘드로이친", "0-chondroitin"), ("관절", "0-chondroitin"),
+                 ("알아서", "0-chondroitin"))
+
+
+def _scenario(text: str) -> dict:
+    t = (text or "").strip()
+    sid = next((sid for key, sid in SCENARIO_KEYS if key in t), "1-daily")
+    return samples.get(sid) or samples.all_samples()[0]
+
+
+def demo_parent_call(scenario: str = "장보기", transcript: str = "", ctx: Context | None = None) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    if not ratelimit.allow(f"demo-call:{fam['id']}", 30, 3600):
+        return {"ok": False, "message": "데모 통화는 1시간에 30번까지 만들 수 있어요."}
+    custom = (transcript or "").strip()[:5000]
+    sample = None if custom else _scenario(scenario)
+    parent = fam["parents"][0]
+    ev = telco.CallEnded(
+        call_id=f"demo-{uuid.uuid4().hex[:10]}", from_number=parent["phone"], to_number=fam["child_phone"],
+        ended_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+        summary=(sample or {}).get("summary") or None, todos=(sample or {}).get("todos") or None,
+        transcript=custom or sample["transcript"])
+    _, call_id = telco.receive(ev, source="데모 통화 (vooy)")
+    if not call_id:
+        return {"ok": False, "message": "통화를 넣지 못했어요. get_family_status로 연결 상태를 확인해 주세요."}
+    pipeline.process_call(call_id)
+    label = parent["label"]
+    return {
+        "ok": True, "call_id": call_id, "scenario": sample["title"] if sample else "직접 입력한 통화",
+        "next_action": "get_new_parent_requests",
+        "message": (f"{josa(label, '과', '와')} 통화가 방금 끝난 것으로 처리했어요(체험용). 서버가 통화 정리본을 만들었어요. "
+                    "get_new_parent_requests를 불러 정리본을 보여 주세요. 5분 자동 확인을 켜 두셨다면 다음 확인 때 저절로 알려 드려요."),
+    }
+
+
+def enable_demo_tools() -> None:
+    """체험 서버에서만 보이는 도구를 등록한다 (이미 있으면 그대로)."""
+    if any(t.name == "demo_parent_call" for t in server._tool_manager.list_tools()):
+        return
+    server.add_tool(
+        demo_parent_call, name="demo_parent_call", title="체험: 엄마와 통화한 것처럼 만들기",
+        description=(
+            "체험용 도구입니다. 엄마와 통화가 방금 끝난 것처럼 만들어, 실제 에이닷 통화 종료 웹훅과 같은 처리로 정리본을 만듭니다. "
+            "예: '데모 통화 만들어줘', '엄마랑 통화한 걸로 쳐줘', '엄마가 장보기 부탁하는 상황 만들어줘', '사칭 전화 상황 보여줘'. "
+            "scenario는 장보기(기본)·건강식품·알아서 골라줘(콘드로이친)·사칭 중 하나, transcript에 대화를 넣으면 그 내용으로 만듭니다. "
+            "부른 뒤에는 바로 get_new_parent_requests로 정리본을 가져와 사용자에게 보여 주세요."
+        ),
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False,
+                                    open_world_hint=False),
+    )
+
+
+if demo_mode():
+    enable_demo_tools()
+
+
+async def tool_catalog() -> list[dict]:
+    """vooy가 보게 될 도구 정의 요약 (시작 페이지 표시용)."""
+    out = []
+    for t in await server.list_tools():
+        ann = t.annotations
+        out.append({
+            "name": t.name, "title": t.title, "description": t.description,
+            "params": list(((t.input_schema or {}).get("properties") or {}).keys()),
+            "read_only": bool(ann and ann.read_only_hint), "destructive": bool(ann and ann.destructive_hint),
+        })
+    return out
 
 
 # ---------- HTTP 연결 ----------
