@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#F7F7F8">
-<title>don't call me, Mama</title>
+<title>don't call Mama</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css">
 <style>
@@ -191,7 +191,7 @@ body.no-account [data-panel=home] section:not(#onboard){display:none!important}
 </head>
 <body data-tab="home">
 <header class="appbar"><div class="appbar-in">
-  <div class="brand"><h1>don't call me, <span>Mama</span></h1><p>엄마 전화 한 통이면, 부탁은 알아서 끝</p></div>
+  <div class="brand"><h1>don't call <span>Mama</span></h1><p>엄마 전화 한 통이면, 부탁은 알아서 끝</p></div>
   <div class="chips"><span class="chip brand" id="llm"></span><span class="chip" id="spent"></span><span class="chip">모든 결제는 테스트 결제</span></div>
 </div></header>
 <div id="toast"></div>
@@ -304,7 +304,7 @@ function renderOnboard(f, mcpUrl) {
     el.innerHTML = `<h2>시작하기: 엄마 번호만 등록하면 끝</h2>
       <div class="sub">가입하면 나만의 vooy 연결 주소와 대시보드 링크가 생겨요. 엄마와의 통화만 처리하고, 다른 통화는 저장하지 않아요.</div>
       <div class="row" style="margin-top:12px"><button class="primary" id="demo">체험 계정으로 바로 시작</button>
-        <span class="sub">데모 번호·엄마 메모가 채워진 계정 · <a href="/skt">에이닷 연동 데모</a> · <a href="/vooy">vooy MCP 데모</a></span></div>
+        <span class="sub">데모 번호·엄마 메모가 채워진 계정 · ${PUB && !PUB.audience ? `<a href="/skt">에이닷 연동 데모</a> · <a href="/vooy">vooy MCP 데모</a>` : `<a href="/">시작 페이지</a>`}</span></div>
       <details><summary>직접 가입하기</summary>
       <div class="form">
         <label>내 이름<input id="s_name" value="지누"></label>
@@ -444,9 +444,9 @@ document.addEventListener("click", async e => {
     else if (t.dataset.sample) { const s = samples.find(x => x.id === t.dataset.sample); picked = s; $("#transcript").value = s.transcript; $("#who").value = s.caller === "엄마" ? "parent" : "unknown"; return; }
     else if (t.id === "demo") {
       t.disabled = true;
-      const made = await api("/api/demo", {method:"POST", body:JSON.stringify({audience:"skt"})});
+      const made = await api("/api/demo", {method:"POST", body:JSON.stringify({})});
       setAccount(made.dashboard_token);
-      location.href = "/?a=" + encodeURIComponent(made.dashboard_token);
+      location.href = "/dashboard?a=" + encodeURIComponent(made.dashboard_token);
       return;
     }
     else if (t.id === "signup") {
@@ -454,14 +454,14 @@ document.addEventListener("click", async e => {
         const made = await api("/api/families", {method:"POST", body:JSON.stringify({child_name:$("#s_name").value, child_phone:$("#s_phone").value,
           parents:[{label:$("#s_label").value || "엄마", phone:$("#s_mphone").value, address:$("#s_addr").value}]})});
         setAccount(made.dashboard_token);
-        location.href = "/?a=" + encodeURIComponent(made.dashboard_token);
+        location.href = "/dashboard?a=" + encodeURIComponent(made.dashboard_token);
         return;
       } catch (err) {
         let d; try { d = JSON.parse(err.message).detail; } catch (_) {}
         $("#s_err").textContent = typeof d === "string" ? d : "가입 정보를 확인해 주세요."; return;
       }
     }
-    else if (t.dataset.leave) { await api(`/api/families/${t.dataset.leave}`, {method:"DELETE"}); setAccount(null); location.href = "/"; return; }
+    else if (t.dataset.leave) { await api(`/api/families/${t.dataset.leave}`, {method:"DELETE"}); setAccount(null); location.href = "/dashboard"; return; }
     else return;
   } catch (err) { console.log(err); }
   last = ""; famKey = null; refresh();
@@ -509,7 +509,8 @@ document.querySelectorAll(".policy input").forEach(i => i.addEventListener("chan
     vooy_checkout:$("#p_external").checked ? "external" : "test_mall"})});
   last = ""; refresh();
 }));
-let samples = [], picked = null;
+let samples = [], picked = null, PUB = null;
+fetch("/api/public").then(r => r.json()).then(p => { PUB = p; famKey = null; refresh(); }).catch(() => {});
 api("/api/samples").then(s => { samples = s; $("#samples").innerHTML = s.map(x => `<button data-sample="${x.id}">${esc(x.title)}</button>`).join(""); });
 function showTab(name) {
   document.body.dataset.tab = name;

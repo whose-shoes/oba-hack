@@ -140,7 +140,7 @@ def register(child_name: str, child_phone: str, parents: list[dict], origin: str
         "child_phone": child,
         "upload_token": secrets.token_urlsafe(24),
         "mcp_token": secrets.token_urlsafe(16),        # 개인 vooy 연결 주소 /mcp/<토큰>
-        "dashboard_token": secrets.token_urlsafe(16),  # 개인 대시보드 링크 /?a=<토큰>
+        "dashboard_token": secrets.token_urlsafe(16),  # 개인 대시보드 링크 /dashboard?a=<토큰>
         "created_at": now(),
         "origin": origin,       # SKT 체험 / vooy 체험 / vooy 가입(MCP) / 대시보드 가입
         "parents": ps,
@@ -254,7 +254,7 @@ def match_sender(raw: str, fam: dict | None = None) -> tuple[dict, dict] | None:
 def links(fam: dict) -> dict:
     import os
     base = os.environ.get("OBA_PUBLIC_URL", "").rstrip("/")
-    return {"mcp_url": f"{base}/mcp/{fam['mcp_token']}", "dashboard_url": f"{base}/?a={fam['dashboard_token']}"}
+    return {"mcp_url": f"{base}/mcp/{fam['mcp_token']}", "dashboard_url": f"{base}/dashboard?a={fam['dashboard_token']}"}
 
 
 def public(fam: dict | None) -> dict | None:

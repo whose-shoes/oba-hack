@@ -30,7 +30,7 @@ DEFAULT = {
     "vooy_checkout": "test_mall",
     # vooy가 결제할 때 쓰는 가족 결제수단. 실제 카드번호는 저장·전송하지 않고, 주문별 1회용 토큰만 넘긴다.
     "family_payment_method": {"label": "가족 공용 카드 (테스트)", "brand": "VISA", "last4": "4242"},
-    "test_merchant": "don't call me, Mama 테스트몰",
+    "test_merchant": "don't call Mama 테스트몰",
 }
 
 

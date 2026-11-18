@@ -1,8 +1,9 @@
-# Fly.io 데모 서버 설정. 배포 방법은 docs/DEPLOY.md
-app = "dont-call-me-mama"
+# Fly.io 배포: vooy 팀용 — 첫 화면이 vooy MCP 데모. 팀마다 앱·볼륨·토큰·데이터가 따로다. 배포 방법은 docs/DEPLOY.md
+app = "dont-call-mama-vooy"
 primary_region = "nrt"
 
 [env]
+  OBA_AUDIENCE = "vooy"
   OBA_DATA_DIR = "/data"
   OBA_PORT = "8080"
   OBA_DEMO_MODE = "1"
@@ -31,7 +32,7 @@ primary_region = "nrt"
     timeout = "5s"
 
 [mounts]
-  source = "dcmm_data"
+  source = "dcm_data"
   destination = "/data"
 
 [[vm]]

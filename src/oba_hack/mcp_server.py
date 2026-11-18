@@ -21,7 +21,7 @@ from mcp.types import ToolAnnotations
 from . import account, catalog, family, notify, pipeline, policy, ratelimit, samples, store, telco
 from .config import demo_mode, josa
 
-INSTRUCTIONS = """don't call me, Mama: 엄마(부모님)와 자녀가 통화를 마치면 엄마의 부탁을 정리해 주문까지 돕는 서비스입니다.
+INSTRUCTIONS = """don't call Mama: 엄마(부모님)와 자녀가 통화를 마치면 엄마의 부탁을 정리해 주문까지 돕는 서비스입니다.
 - 처음 연결했거나 상태가 궁금하면 get_family_status를 먼저 부르세요. 등록 전이면 사용자에게 엄마 호칭·엄마 전화번호·
   내(사용자) 전화번호·배송지·엄마의 선호/건강 메모를 대화로 물어 setup_parent로 등록하세요. 한 번에 다 묻지 말고 필요한 것부터.
 - 공용(가입용) 주소로 가입하면 setup_parent가 사용자 전용 연결 주소(mcp_url)를 돌려줍니다. 사용자에게 그 주소를 보여 주고
@@ -41,7 +41,7 @@ DEMO_INSTRUCTIONS = """
 if demo_mode():
     INSTRUCTIONS += DEMO_INSTRUCTIONS
 
-server = MCPServer(name="dont-call-me-mama", title="don't call me, Mama · 엄마 부탁 대신 처리", instructions=INSTRUCTIONS)
+server = MCPServer(name="dont-call-mama", title="don't call Mama · 엄마 부탁 대신 처리", instructions=INSTRUCTIONS)
 
 READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
@@ -466,7 +466,7 @@ def _vooy_purchase(o: dict, pol: dict) -> dict[str, Any]:
     name="checkout_order",
     title="테스트몰에서 결제",
     description=(
-        "approve_order로 받은 1회용 payment_token으로 don't call me, Mama 테스트몰에서 주문·결제합니다(실제 결제 없음). "
+        "approve_order로 받은 1회용 payment_token으로 don't call Mama 테스트몰에서 주문·결제합니다(실제 결제 없음). "
         "카드번호나 쇼핑몰 로그인 없이 토큰만 넣으면 됩니다. message_to_mom에 엄마께 보낼 문자를 자식 말투로 1~2문장 적으면 그대로 보내고"
         "(예: '엄마, 전기요 시켰어~ 모레 와!'), 비우면 기본 문구로 보냅니다. 결제가 끝나면 주문번호를 돌려줍니다."
     ),

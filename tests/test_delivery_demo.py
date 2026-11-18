@@ -236,3 +236,21 @@ def test_scam_hidden_as_other_task_is_still_blocked_and_warned(client, monkeypat
     assert call["extraction"]["other_tasks"] == [] and "폰이 고장" in call["extraction"]["scam_signals"]
     digest = notify.store.get("digest", call["id"])
     assert "⚠️ 사칭 의심" in digest["text"] and "🚫 결제 안 함" in digest["text"] and "📌" not in digest["text"]
+
+
+@pytest.mark.parametrize("aud,other,title", [("skt", "vooy", "에이닷 연동 데모"), ("vooy", "skt", "vooy MCP 데모")])
+def test_team_deployments_open_only_their_own_page(client, monkeypatch, aud, other, title):
+    """팀마다 배포를 따로 한다: 첫 화면이 그 팀 페이지, 다른 팀 페이지는 없고, 체험 계정도 그 팀 설정으로."""
+    c, _ = client
+    monkeypatch.setenv("OBA_AUDIENCE", aud)
+    home = c.get("/")
+    assert home.status_code == 200 and title in home.text
+    assert c.get(f"/{other}").status_code == 404
+    own = c.get(f"/{aud}", follow_redirects=False)
+    assert own.status_code == 308 and own.headers["location"] == "/"
+    assert "확인이 필요해요" in c.get("/dashboard").text            # 대시보드는 /dashboard
+    made = c.post("/api/demo").json()
+    assert made["dashboard_url"].endswith(f"/dashboard?a={made['dashboard_token']}")
+    pol = c.get("/api/state", headers={"X-Account": made["dashboard_token"]}).json()["policy"]
+    assert pol["payment_executor"] == ("vooy" if aud == "vooy" else "server")
+    assert c.get("/api/public").json()["audience"] == aud

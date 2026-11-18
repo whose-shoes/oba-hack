@@ -1,4 +1,4 @@
-# don't call me, Mama — 데모 서버 이미지 (Fly.io 등 컨테이너 호스팅용)
+# don't call Mama — 데모 서버 이미지 (Fly.io 등 컨테이너 호스팅용)
 FROM python:3.11-slim
 
 # 주문·폴링 시각을 한국 시간으로 기록·표시

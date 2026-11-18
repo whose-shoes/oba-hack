@@ -3,16 +3,16 @@
 vooy(자녀의 메신저 에이전트)에 이 원격 MCP 서버를 연결하면, 자녀는 vooy 대화로 엄마 정보를 등록하고,
 엄마와 통화가 끝날 때마다 정리본을 먼저 받고, "응 결제해" 한마디로 vooy가 결제를 실행합니다. 결제는 모두 **테스트 결제**입니다.
 
-- 체험: `https://dont-call-me-mama.fly.dev/vooy` — MCP 주소·레시피·도구 목록·실시간 서버 기록
+- 체험: https://dont-call-mama-vooy.fly.dev (vooy 팀 전용 서버) — MCP 주소·레시피·도구 목록·실시간 서버 기록
 - 소스: https://github.com/whose-shoes/oba-hack — MCP 서버는 `src/oba_hack/mcp_server.py`
 - 전송: Streamable HTTP, stateless, JSON 응답 (MCP Python SDK 2.x)
 
 ## 1. 5분 체험 순서
 
-1. `/vooy`에서 **체험 계정 만들기** → 개인 MCP 주소를 vooy **서비스 연결**에 넣습니다.
+1. 첫 화면에서 **체험 계정 만들기** → 개인 MCP 주소를 vooy **서비스 연결**에 넣습니다.
    (또는 공용 주소를 넣고 vooy에서 "엄마 등록해줘. 엄마 번호는 …, 내 번호는 …"이라고 말해 가입)
 2. **Recipe Studio**에 [레시피](../src/oba_hack/static/vooy-recipe.txt)를 붙여 넣습니다.
-3. vooy에게 차례로 말해 봅니다 — `/vooy`의 **내 계정에서 일어나는 일**에 서버 처리가 실시간으로 보입니다.
+3. vooy에게 차례로 말해 봅니다 — 첫 화면의 **내 계정에서 일어나는 일**에 서버 처리가 실시간으로 보입니다.
 
 | 말 | vooy가 부르는 도구 | 보이는 것 |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ vooy가 결제하는 계정에서 `approve_order`는 결제하지 않고 **구�
   "ok": true,
   "purchase": {"order_id": "o-048f3764", "mandate_id": "m-…", "product": "한일 전기요 싱글 (탄소매트)",
                "quantity": 1, "max_amount": 59000, "ship_to": "서울 마포구 월드컵로 1", "recipient": "엄마"},
-  "checkout": {"merchant": "don't call me, Mama 테스트몰", "tool": "checkout_order", "payment_token": "ptok_…",
+  "checkout": {"merchant": "don't call Mama 테스트몰", "tool": "checkout_order", "payment_token": "ptok_…",
                "expires_at": "…", "payment_method": "가족 공용 카드 (테스트) VISA •••• 4242", "max_amount": 59000, "single_use": true},
   "next_action": {"tool": "checkout_order", "order_id": "o-048f3764", "payment_token": "ptok_…"},
   "message": "구매 승인: … 이제 checkout_order(…)로 테스트몰 결제를 마치세요 — 카드번호 없이, 이 주문·이 금액에 30분 동안 한 번만 쓰는 토큰이에요. …"
@@ -78,7 +78,7 @@ vooy가 결제하는 계정에서 `approve_order`는 결제하지 않고 **구�
 
 ## 5. 레시피
 
-전문: [`src/oba_hack/static/vooy-recipe.txt`](../src/oba_hack/static/vooy-recipe.txt) (`/vooy` 페이지에서 복사 가능). 요점:
+전문: [`src/oba_hack/static/vooy-recipe.txt`](../src/oba_hack/static/vooy-recipe.txt) (첫 화면에서 복사 가능). 요점:
 
 - 처음엔 `get_family_status` → 등록 전이면 번호부터 묻고 `setup_parent`. 선호·건강은 그때그때 note로.
 - 정리본의 `message`는 그대로 보여 주고, 🟡는 상품·수량·금액·엄마 말을 보여 주며 "결제할까요?"

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>에이닷 연동 데모 · don't call me, Mama</title>
+<title>에이닷 연동 데모 · don't call Mama</title>
 <meta name="description" content="에이닷 통화 요약에서 찾은 장보기 할일을, 자녀가 정한 범위 안에서 결제와 부모님 안내까지 끝내는 에이전트 데모">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css">
 <link rel="stylesheet" href="/static/site.css">
@@ -72,7 +72,7 @@
 </head>
 <body>
 <header class="top"><div class="wrap">
-  <a class="logo" href="/skt">don't call me, <b>Mama</b> <span class="x">× 에이닷</span></a>
+  <a class="logo" href="/">don't call <b>Mama</b> <span class="x">× 에이닷</span></a>
   <div class="chips"><span class="chip brand" id="engine">분석 엔진 확인 중</span><span class="chip">모든 결제·문자는 테스트</span></div>
 </div></header>
 
@@ -121,7 +121,7 @@
   <div class="arch">
     <div class="box skt"><b>에이닷</b>통화 녹음 · 요약 · 할일</div>
     <div class="arrow">통화 종료 웹훅<br>등록된 번호만</div>
-    <div class="box us"><b>don't call me, Mama</b>번호 필터 → 부탁 추출 → 상품 선택 → 위임 판단 → 테스트 결제 → 실패 복구</div>
+    <div class="box us"><b>don't call Mama</b>번호 필터 → 부탁 추출 → 상품 선택 → 위임 판단 → 테스트 결제 → 실패 복구</div>
     <div class="arrow">정리본 · 문자</div>
     <div class="box"><b>자녀 · 엄마</b>자녀: vooy·앱으로 승인<br>엄마: “주문했어요” 문자</div>
   </div>
@@ -198,7 +198,7 @@
 </section>
 
 <footer><div class="row">
-  <a href="/" id="dash">대시보드</a><a href="/vooy">vooy 연동 데모 →</a>
+  <a href="/dashboard" id="dash">대시보드</a>
   <a href="https://github.com/whose-shoes/oba-hack" target="_blank" rel="noopener">GitHub</a>
   <span>모든 결제·문자는 테스트(모의)이며 실제 거래가 일어나지 않습니다.</span>
 </div></footer>
@@ -240,9 +240,9 @@ function renderAccount() {
       <span>내 번호 <b>${esc(childNumber())}</b></span><span>엄마 <b>${esc(momNumber())}</b></span>
       <span class="sub">자동결제 한도 ${won(p.auto_approve_limit)} · 1회 최대 ${won(p.max_per_order)} · 차단 품목 ${esc(p.blocked_categories.join(", "))}</span>
     </div><div class="row">
-      <a class="btn sm" href="/?a=${encodeURIComponent(f.dashboard_token)}" target="_blank" rel="noopener">대시보드에서 범위 바꾸기</a>
+      <a class="btn sm" href="/dashboard?a=${encodeURIComponent(f.dashboard_token)}" target="_blank" rel="noopener">대시보드에서 범위 바꾸기</a>
       <button class="sm" id="newacct">새 체험 계정</button></div></div>`;
-  $("#dash").href = "/?a=" + encodeURIComponent(f.dashboard_token);
+  $("#dash").href = "/dashboard?a=" + encodeURIComponent(f.dashboard_token);
 }
 
 function pickScenario(sc) {

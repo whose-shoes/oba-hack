@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>vooy MCP 데모 · don't call me, Mama</title>
+<title>vooy MCP 데모 · don't call Mama</title>
 <meta name="description" content="MCP 주소 하나로 엄마 전화가 vooy 대화가 되는 원격 MCP 서버 데모">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css">
 <link rel="stylesheet" href="/static/site.css">
@@ -32,7 +32,7 @@
 </head>
 <body>
 <header class="top"><div class="wrap">
-  <a class="logo" href="/vooy">don't call me, <b>Mama</b> <span class="x">× vooy</span></a>
+  <a class="logo" href="/">don't call <b>Mama</b> <span class="x">× vooy</span></a>
   <div class="chips"><span class="chip brand">MCP · Streamable HTTP</span><span class="chip" id="engine">분석 엔진 확인 중</span><span class="chip">모든 결제는 테스트</span></div>
 </div></header>
 
@@ -74,7 +74,7 @@
 <section class="card" id="live">
   <h2>내 계정에서 일어나는 일 <span class="badge violet">실시간</span></h2>
   <p class="sub">vooy가 부른 도구가 서버에서 어떻게 처리되는지 여기서 바로 보입니다. vooy에서 말로 가입했다면 받은 대시보드 링크를 붙여 넣으세요.</p>
-  <div id="noacct" class="inline-copy"><input id="attach" placeholder="https://…/?a=… (vooy가 알려 준 내 대시보드 링크)" aria-label="대시보드 링크"><button class="sm" id="attachbtn">연결</button></div>
+  <div id="noacct" class="inline-copy"><input id="attach" placeholder="https://…/dashboard?a=… (vooy가 알려 준 내 대시보드 링크)" aria-label="대시보드 링크"><button class="sm" id="attachbtn">연결</button></div>
   <div id="liveon" hidden>
     <div class="live">
       <div>
@@ -134,7 +134,7 @@
 </section>
 
 <footer><div class="row">
-  <a href="/" id="dash">대시보드</a><a href="/skt">에이닷 연동 데모 →</a>
+  <a href="/dashboard" id="dash">대시보드</a>
   <a href="https://github.com/whose-shoes/oba-hack" target="_blank" rel="noopener">GitHub</a>
   <span>모든 결제·문자는 테스트(모의)이며 실제 거래가 일어나지 않습니다.</span>
 </div></footer>
@@ -217,9 +217,9 @@ function renderPersonal() {
   $("#personal").innerHTML = `<div class="sub small">이 주소를 vooy 서비스 연결에 넣으세요 (비밀번호처럼 다루세요)</div>
     <div class="inline-copy"><input id="mine" readonly value="${esc(absolute(S.st.mcp_url))}" aria-label="개인 MCP 주소"><button class="sm" data-copyfrom="mine">복사</button></div>
     <div class="sub small">데모 번호: 나 ${esc(f.demo_numbers?.child || f.child_phone)} · 엄마 ${esc(f.demo_numbers?.parent || f.parents[0].phone)} ·
-    <a href="/?a=${encodeURIComponent(f.dashboard_token)}" target="_blank" rel="noopener">대시보드</a> ·
+    <a href="/dashboard?a=${encodeURIComponent(f.dashboard_token)}" target="_blank" rel="noopener">대시보드</a> ·
     <a href="#" id="resetacct">새 체험 계정</a></div>`;
-  $("#dash").href = "/?a=" + encodeURIComponent(f.dashboard_token);
+  $("#dash").href = "/dashboard?a=" + encodeURIComponent(f.dashboard_token);
 }
 
 function renderLive() {
@@ -261,7 +261,7 @@ document.addEventListener("click", async e => {
   if (t.id === "copyrecipe") return copyText(S.recipe);
   if (t.id === "attachbtn") {
     const m = $("#attach").value.match(/[?&]a=([^&#\s]+)/);
-    if (!m) return toast("대시보드 링크(…/?a=…)를 붙여 넣어 주세요");
+    if (!m) return toast("대시보드 링크(…/dashboard?a=…)를 붙여 넣어 주세요");
     setAccount(decodeURIComponent(m[1])); await refresh();
     return toast(S.st ? "연결했어요" : "링크를 확인해 주세요");
   }

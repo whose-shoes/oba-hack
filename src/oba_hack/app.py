@@ -12,13 +12,13 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import (account, catalog, family, ingest, llm, mcp_server, notify, pipeline, policy, ratelimit, samples, store,
                telco, usage)
-from .config import data_dir, demo_mode, telco_signing_secret
+from .config import audience, data_dir, demo_mode, telco_signing_secret
 
 STATIC = Path(__file__).parent / "static"
 
@@ -44,7 +44,7 @@ async def lifespan(_: FastAPI):
             task.cancel()
 
 
-app = FastAPI(title="don't call me, Mama", lifespan=lifespan)
+app = FastAPI(title="don't call Mama", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
@@ -52,7 +52,7 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 async def revalidate_pages(request: Request, call_next):
     """페이지·정적 파일은 매번 다시 확인하게 한다 (재배포 뒤 옛 화면이 캐시에서 뜨지 않도록, 바뀐 게 없으면 304)."""
     response = await call_next(request)
-    if request.url.path in ("/", "/skt", "/vooy", "/admin") or request.url.path.startswith("/static/"):
+    if request.url.path in ("/", "/dashboard", "/skt", "/vooy", "/admin") or request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-cache"
     return response
 
@@ -67,21 +67,40 @@ def health() -> dict:
     return {"ok": True, "llm": llm.provider_label()}
 
 
+START_PAGES = {"skt": "skt.html", "vooy": "vooy.html"}
+
+
 @app.get("/")
 def index() -> FileResponse:
+    """첫 화면: 팀별 배포면 그 팀의 시작 페이지, 로컬 개발이면 대시보드."""
+    return FileResponse(STATIC / START_PAGES.get(audience(), "index.html"))
+
+
+@app.get("/dashboard")
+def dashboard() -> FileResponse:
+    """자녀 대시보드 (개인 링크 /dashboard?a=<토큰>)."""
     return FileResponse(STATIC / "index.html")
 
 
+def _start_page(name: str):
+    """로컬 개발에서만 경로로 연다. 팀별 배포에서는 자기 페이지면 첫 화면으로, 다른 팀 페이지는 없음."""
+    if not audience():
+        return FileResponse(STATIC / START_PAGES[name])
+    if audience() == name:
+        return RedirectResponse("/", status_code=308)
+    raise HTTPException(404, "not found")
+
+
 @app.get("/skt")
-def skt_page() -> FileResponse:
+def skt_page():
     """SKT용 시작 페이지: 에이닷 통화 종료 → 결제까지 직접 체험하고, 연동 명세를 본다."""
-    return FileResponse(STATIC / "skt.html")
+    return _start_page("skt")
 
 
 @app.get("/vooy")
-def vooy_page() -> FileResponse:
+def vooy_page():
     """vooy 팀용 시작 페이지: MCP 연결·레시피·도구 목록과 체험 계정."""
-    return FileResponse(STATIC / "vooy.html")
+    return _start_page("vooy")
 
 
 # ---------- 운영자: LLM 사용량 (OBA_ADMIN_TOKEN) ----------
@@ -117,6 +136,7 @@ async def public_info() -> dict:
     """시작 페이지용 공개 정보 (토큰·개인정보 없음)."""
     return {
         "demo": demo_mode(),
+        "audience": audience(),
         "llm": llm.provider_label(),
         "signup_mcp_url": mcp_server.public_url(),
         "public_url": os.environ.get("OBA_PUBLIC_URL", "").rstrip("/"),
@@ -126,7 +146,7 @@ async def public_info() -> dict:
 
 
 class DemoIn(BaseModel):
-    audience: str = "skt"   # skt: 우리 서버가 테스트 결제 | vooy: vooy가 1회용 토큰으로 테스트몰 결제
+    audience: str = ""   # skt: 우리 서버가 테스트 결제 | vooy: vooy가 1회용 토큰으로 테스트몰 결제 (비우면 이 배포의 팀)
 
 
 @app.post("/api/demo", status_code=201)
@@ -135,7 +155,7 @@ def start_demo(request: Request, body: DemoIn | None = None) -> dict:
     if not demo_mode():
         raise HTTPException(404, "not found")
     _limit(request, "demo", 20, 3600)
-    vooy = (body.audience if body else "") == "vooy"
+    vooy = ((body.audience if body else "") or audience()) == "vooy"
     fam = family.register_demo("vooy 체험" if vooy else "체험", payment_executor="vooy" if vooy else "server",
                                origin="vooy 체험" if vooy else "SKT 체험")
     return family.public(fam)

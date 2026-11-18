@@ -1,4 +1,4 @@
-# don't call me, Mama
+# don't call Mama (돈콜 마마)
 
 > **엄마가 전화로 "그거 좀 사 줘" 하면, 통화가 끝난 뒤 에이전트가 자식 대신 찾아서 결제하고 엄마에게 알려 줍니다.**
 
@@ -8,12 +8,14 @@ OBA.RUN 2nd 해커톤(SKT Agentic Pay 트랙) 출품작을 해커톤 이후 완�
 
 ## 바로 체험하기
 
+팀마다 **배포를 따로** 했습니다. 서버·데이터·토큰이 완전히 분리되고, 첫 화면이 그 팀의 시작 페이지입니다.
+
 | 누구를 위한 | 주소 | 무엇을 볼 수 있나 |
 | --- | --- | --- |
-| **SKT** (에이닷 연동) | `https://dont-call-me-mama.fly.dev/skt` | 에이닷 통화 종료 → 웹훅 → 부탁 추출·상품 선택·위임 판단·테스트 결제·엄마 문자까지 단계별로. 연동 명세와 curl 예시 |
-| **vooy 팀** (MCP) | `https://dont-call-me-mama.fly.dev/vooy` | vooy에 넣을 MCP 주소·레시피·도구 목록, 체험 계정, vooy가 부른 도구가 서버에서 처리되는 실시간 기록 |
-| 자녀 대시보드 | `https://dont-call-me-mama.fly.dev/` | 승인·취소·위임 범위·vooy 웹훅 설정 |
+| **SKT** (에이닷 연동) | https://dont-call-mama-skt.fly.dev | 에이닷 통화 종료 → 웹훅 → 부탁 추출·상품 선택·위임 판단·테스트 결제·엄마 문자까지 단계별로. 연동 명세와 curl 예시 |
+| **vooy 팀** (MCP) | https://dont-call-mama-vooy.fly.dev | vooy에 넣을 MCP 주소·레시피·도구 목록, 체험 계정, vooy가 부른 도구가 서버에서 처리되는 실시간 기록 |
 
+두 서버 모두 자녀 대시보드는 `/dashboard`, 운영자용 LLM 사용량은 `/admin`입니다.
 방문할 때마다 **체험 계정**(데모 번호·엄마 메모·위임 범위가 채워진 샌드박스)이 만들어져 다른 사람의 체험과 섞이지 않습니다.
 자세한 안내: [에이닷 연동 (SKT)](docs/SKT.md) · [vooy 연결과 레시피](docs/VOOY_RECIPE.md) · [배포](docs/DEPLOY.md)
 
@@ -88,16 +90,17 @@ vooy의 서비스 연결에 MCP 주소를, Recipe Studio에 [레시피](src/oba_
 ```bash
 cp .env.example .env              # 토큰 바꾸기, LLM 키가 있으면 OPENAI_API_KEY 등
 set -a; source .env; set +a
-uv run oba-hack                   # http://localhost:8000 — /skt, /vooy, / (대시보드)
-uv run pytest                     # 테스트 68개
+uv run oba-hack                   # http://localhost:8000 — / (대시보드), /skt, /vooy (OBA_AUDIENCE가 비어 있을 때)
+uv run pytest                     # 테스트 73개
 ```
 
-키가 없어도 **규칙 기반 추출**로 끝까지 동작합니다. 지금 쓰는 분석 엔진은 화면 상단에 표시됩니다. 배포는 [docs/DEPLOY.md](docs/DEPLOY.md) (Fly.io).
+키가 없어도 **규칙 기반 추출**로 끝까지 동작합니다. 지금 쓰는 분석 엔진은 화면 상단에 표시됩니다. 배포는 [docs/DEPLOY.md](docs/DEPLOY.md) (Fly.io, 팀별 앱 2개).
 
 ### 환경변수
 
 | 변수 | 설명 |
 | --- | --- |
+| `OBA_AUDIENCE` | 이 배포가 누구용인지: `skt`(첫 화면 = 에이닷 연동 데모) · `vooy`(첫 화면 = vooy MCP 데모). 비우면 로컬 개발 — 첫 화면이 대시보드이고 `/skt`·`/vooy`를 모두 엶 |
 | `OBA_PUBLIC_URL` | 외부 https 주소. vooy 연결 주소·대시보드 링크를 만들 때 씀 |
 | `OBA_MCP_TOKEN` | 공용(가입용) MCP 주소 `/mcp/<토큰>`의 비밀 경로 (없으면 실행마다 임시 생성) |
 | `OBA_TELCO_TOKEN` · `OBA_TELCO_SIGNING_SECRET` | 통신사 웹훅 인증 토큰 · (선택) HMAC 서명 비밀 |
@@ -117,7 +120,7 @@ uv run pytest                     # 테스트 68개
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/skt` · `/vooy` · `/` | SKT 시작 페이지 · vooy 시작 페이지 · 자녀 대시보드 |
+| `GET` | `/` · `/dashboard` | 팀 시작 페이지(`OBA_AUDIENCE`) · 자녀 대시보드 (로컬 개발이면 `/`가 대시보드, `/skt`·`/vooy`도 열림) |
 | `POST` | `/mcp/<토큰>` | vooy용 원격 MCP (Streamable HTTP, stateless, JSON 응답) |
 | `POST` | `/v1/telco/call-ended` | 통신사 통화 종료 웹훅 (`OBA_TELCO_TOKEN`, 선택 HMAC) |
 | `GET` | `/v1/telco/calls/{call_id}` | 웹훅으로 보낸 통화의 처리 결과 (통신사 토큰, 데모 모드) |
@@ -167,7 +170,7 @@ LLM을 부를 때마다(실패·폴백 포함) 엔진·모델·용도(부탁 찾
 
 ```
 src/oba_hack/
-  app.py         API, 시작 페이지(/skt, /vooy), 대시보드, 체험 계정·요청 제한
+  app.py         API, 팀별 시작 페이지(OBA_AUDIENCE), 대시보드, 체험 계정·요청 제한
   mcp_server.py  vooy용 MCP 도구 (엄마 등록, 정리본, 승인·테스트몰 결제·보고, 취소, 위임 범위, 체험 통화)
   telco.py       통신사(에이닷) 통화 종료 웹훅: 번호 필터, 할일, HMAC 서명, 처리 결과 조회
   notify.py      통화 정리본, vooy 웹훅 발송(계정별 설정·SSRF 방지) / 반복 작업용 보낼 함
