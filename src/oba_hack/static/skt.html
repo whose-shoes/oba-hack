@@ -289,7 +289,7 @@ async function hangup() {
     return finish();
   }
   setStep("filter", "done", "등록된 엄마 번호와의 통화예요. 이 통화만 처리합니다.");
-  setStep("extract", "active", "통화에서 부탁을 찾는 중…");
+  setStep("extract", "active", "통화에서 부탁을 찾고 상품을 고르는 중… (LLM 분석이라 5~10초 걸려요)");
   S.current = r.call_id; S.seen.add(r.call_id);
   try { await renderOutcome(await waitOutcome(r.call_id), true); }
   catch (e) { setStep("extract", "stop", "처리 결과를 받지 못했어요: " + esc(e.message)); }

@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import contextvars
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -111,7 +113,9 @@ def process_call(call_id: str) -> dict:
     store.log("step", call_id, f"부탁 추출({engine}): {result.get('summary', '')}")
     store.put("call", call_id, call)
 
-    orders = [_make_order(call, req, result.get("scam_signals", [])) for req in result.get("requests", [])]
+    reqs = result.get("requests", [])
+    preps = _prepare_all(call, reqs)  # 상품 후보·LLM 선택은 품목별로 동시에
+    orders = [_make_order(call, req, result.get("scam_signals", []), prep) for req, prep in zip(reqs, preps)]
     call["order_ids"] = [o["id"] for o in orders]
     call["status"] = "processed"
     store.put("call", call_id, call)
@@ -143,12 +147,34 @@ def purchase_history(family_id: str | None, caller: str) -> list[dict]:
     return sorted(seed + paid, key=lambda h: h["date"])
 
 
-def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
+def _prepare(call: dict, req: dict) -> dict:
+    """품목 하나의 구매 이력·상품 후보·LLM 선택. 결제·예산과 무관해 품목끼리 동시에 돌려도 된다."""
+    fid = call.get("family_id")
+    hist = purchase_history(fid, call["caller"])
+    candidates = catalog.search(req.get("item", ""), req.get("detail", ""), hist)
+    ai = None
+    if candidates:
+        ai = choose.choose(req, candidates, family.notes_for(fid),
+                           [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")} for h in hist],
+                           policy.get(fid)["max_per_order"])
+    return {"hist": hist, "candidates": candidates, "ai": ai}
+
+
+def _prepare_all(call: dict, reqs: list[dict]) -> list[dict]:
+    """LLM 상품 선택은 품목마다 2~3초라, 순서대로 하면 품목 수만큼 기다린다 → 동시에 (계정·통화 문맥은 그대로 넘김)."""
+    if len(reqs) <= 1:
+        return [_prepare(call, r) for r in reqs]
+    with ThreadPoolExecutor(max_workers=min(4, len(reqs))) as pool:
+        futures = [pool.submit(contextvars.copy_context().run, _prepare, call, r) for r in reqs]
+        return [f.result() for f in futures]
+
+
+def _make_order(call: dict, req: dict, scam_signals: list[str], prep: dict | None = None) -> dict:
     caller = call["caller"]
     oid = f"o-{uuid.uuid4().hex[:8]}"
     fid = call.get("family_id")
-    hist = purchase_history(fid, caller)
-    candidates = catalog.search(req.get("item", ""), req.get("detail", ""), hist)
+    prep = prep or _prepare(call, req)
+    hist, candidates = prep["hist"], prep["candidates"]
     order = {
         "id": oid, "call_id": call["id"], "family_id": fid, "caller": caller, "request": req, "created_at": now(),
         "timeline": [], "receipt": None, "attempts": [], "ship_to": _ship_to(call),
@@ -162,9 +188,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
         return order
 
     pick = candidates[0]
-    ai = choose.choose(req, candidates, family.notes_for(call.get("family_id")),
-                       [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")} for h in hist],
-                       policy.get(fid)["max_per_order"])
+    ai = prep["ai"]
     if ai:  # LLM이 엄마 상황(메모·이력·예산)을 보고 고른 상품
         pick = next(c for c in candidates if c["id"] == ai["product_id"])
         pick = {**pick, "reasons": ([f"{ai['engine']} 추천: {ai['reason']}"] if ai["reason"] else []) + pick["reasons"]}

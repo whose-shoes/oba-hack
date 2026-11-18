@@ -112,3 +112,27 @@ def test_admin_usage_needs_the_admin_token(client, monkeypatch):
     r = c.get("/admin/usage", headers={"Authorization": "Bearer admin-secret"})
     assert r.status_code == 200 and r.json()["today"]["calls"] == 1
     assert c.get("/admin").status_code == 200 and "OBA_ADMIN_TOKEN" in c.get("/admin").text
+
+
+def test_parallel_product_choice_keeps_account_context(client, monkeypatch):
+    """품목별 LLM 상품 선택을 동시에 돌려도 사용량은 그 계정·그 통화로 기록되고, 주문마다 선택이 붙는다."""
+    c, _ = client
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    meta = {"model": "gpt-4o-mini", "prompt_tokens": 100, "completion_tokens": 10}
+
+    def fake_request(p, system, user, timeout):
+        if "쇼핑 비서" in system:
+            first = json.loads(user)["candidates"][0]["product_id"]
+            return json.dumps({"product_id": first, "reason": "골랐어요", "search_keyword": "", "buy_criteria": []}), meta
+        items = [{"item": i, "quantity": 1, "evidence": f"{i} 사줘"} for i in ("휴지", "계란", "쌀")]
+        return json.dumps({"summary": "", "requests": items}), meta
+
+    monkeypatch.setattr(llm, "_request", fake_request)
+    fam = family.register("지누", CHILD, [{"label": "엄마", "phone": MOM}], origin="vooy 체험")
+    c.headers["X-Account"] = fam["dashboard_token"]
+    c.post("/api/simulate/call-ended", json={"transcript": "엄마: 휴지랑 계란이랑 쌀 사줘."})
+    chooses = [r for r in usage.summary(1)["recent"] if r["purpose"] == "choose"]
+    assert len(chooses) == 3 and all(r["family_id"] == fam["id"] and r["ref"] for r in chooses)
+    orders = c.get("/api/state").json()["orders"]
+    assert len(orders) == 3 and all(o.get("ai_pick") for o in orders)
+    assert usage.summary(1)["by_team"][0]["key"] == "vooy 체험"
