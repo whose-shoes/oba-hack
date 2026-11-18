@@ -57,7 +57,7 @@ def test_aidot_todos_reach_extraction_and_result_endpoint(client, monkeypatch):
     c, _ = client
     seen = {}
 
-    def fake(system, user, timeout=40.0):
+    def fake(system, user, timeout=40.0, **kw):
         seen.setdefault("prompts", []).append(user)
         return {"summary": "쌀 부탁", "requests": [{"item": "쌀", "quantity": 1, "evidence": "쌀 다 떨어졌어"}]}
 
@@ -192,13 +192,14 @@ def test_llm_falls_back_to_the_next_engine(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     tried = []
 
-    def fake_call(p, system, user, timeout):
+    def fake_request(p, system, user, timeout):
         tried.append(p)
         if p == "ax":
             raise RuntimeError("A.X down")
-        return {"summary": "휴지 부탁", "requests": [{"item": "휴지", "quantity": 1, "evidence": "휴지 다 떨어졌어"}]}
+        return json.dumps({"summary": "휴지 부탁", "requests": [{"item": "휴지", "quantity": 1, "evidence": "휴지 다 떨어졌어"}]}), \
+            {"model": "gpt-4o-mini", "prompt_tokens": 1000, "cached_tokens": 0, "completion_tokens": 100}
 
-    monkeypatch.setattr(llm, "_call", fake_call)
+    monkeypatch.setattr(llm, "_request", fake_request)
     assert llm.provider_label() == "SKT A.X → OpenAI"
     result, engine = extract.extract("엄마: 휴지 다 떨어졌어.")
     assert tried == ["ax", "openai"] and engine == "OpenAI" and "_engine" not in result

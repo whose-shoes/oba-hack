@@ -7,3 +7,6 @@ override: ContextVar[str | None] = ContextVar("account_override", default=None)
 
 # 지금 처리 중인 계정 — store.log가 이벤트에 family_id를 자동으로 붙인다
 log_family: ContextVar[str | None] = ContextVar("log_family", default=None)
+
+# 지금 처리 중인 통화 ID — LLM 사용량 기록에 붙인다
+log_ref: ContextVar[str | None] = ContextVar("log_ref", default=None)

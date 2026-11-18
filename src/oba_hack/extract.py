@@ -120,7 +120,7 @@ def extract(transcript: str, context: str = "", todos: list[str] | None = None) 
         prompt = "에이닷 할일(통화 요약에서 찾은 후속 조치):\n" + "\n".join(f"- {redact(t)}" for t in todos) + "\n\n" + prompt
     if context.strip():
         prompt = f"참고 정보(자녀가 등록한 가족 메모):\n{redact(context)}\n\n" + prompt
-    result = llm.chat_json(SYSTEM, prompt)
+    result = llm.chat_json(SYSTEM, prompt, purpose="extract")
     engine = llm.engine_of(result) if result else ""
     if result and isinstance(result.get("requests"), list):
         result.setdefault("other_tasks", [])

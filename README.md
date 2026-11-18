@@ -89,7 +89,7 @@ vooy의 서비스 연결에 MCP 주소를, Recipe Studio에 [레시피](src/oba_
 cp .env.example .env              # 토큰 바꾸기, LLM 키가 있으면 OPENAI_API_KEY 등
 set -a; source .env; set +a
 uv run oba-hack                   # http://localhost:8000 — /skt, /vooy, / (대시보드)
-uv run pytest                     # 테스트 62개
+uv run pytest                     # 테스트 68개
 ```
 
 키가 없어도 **규칙 기반 추출**로 끝까지 동작합니다. 지금 쓰는 분석 엔진은 화면 상단에 표시됩니다. 배포는 [docs/DEPLOY.md](docs/DEPLOY.md) (Fly.io).
@@ -107,6 +107,9 @@ uv run pytest                     # 테스트 62개
 | `ANTHROPIC_API_KEY` · `OBA_CLAUDE_MODEL` | Claude. 3순위. 앞 엔진이 실패하면 다음 엔진, 모두 실패하면 규칙 기반 |
 | `OBA_STT_API_KEY` | 녹음 파일만 올 때 음성 인식 (없으면 `OPENAI_API_KEY`, 그것도 없으면 대시보드에서 붙여넣기) |
 | `OBA_DEMO_MODE` | 체험 서버 기능(체험 계정, `demo_parent_call` 도구, 통화 결과 조회). 기본 `1`, 끄려면 `0` |
+| `OBA_ADMIN_TOKEN` | 운영자용 LLM 사용량 화면 `/admin`·`GET /admin/usage` 토큰 (없으면 두 주소 모두 404) |
+| `OBA_LLM_DAILY_USD_LIMIT` | 하루 LLM 추정 비용 한도(USD). 넘으면 그날은 LLM을 쉬고 규칙 기반 (데모 서버 $5) |
+| `OBA_LLM_PRICES` | 단가 추가·변경 JSON `{"모델": [입력, 캐시 입력, 출력]}` (100만 토큰당 USD) |
 | `OBA_DEFAULT_CALLER` | 공유 경로에서 발신자 정보가 없을 때 기본값 (기본 `엄마`) |
 | `OBA_VOOY_PUSH_URL` · `…_TOKEN` · `…_USER_ID` · `…_SIGNING_SECRET` | vooy 웹훅 기본값 (단일 계정 운영용). 보통은 계정별로 대시보드에서 설정 |
 
@@ -128,9 +131,19 @@ uv run pytest                     # 테스트 62개
 | `GET` | `/api/calls/{id}/outcome` | 통화 한 건의 추출·선택·판단·결제·문자 결과 |
 | `POST` | `/api/orders/{id}/approve` · `reject` · `cancel` · `swap` | 자식의 개입 |
 | `GET` · `PUT` | `/api/policy` · `/api/vooy` | 위임 정책 · vooy 웹훅 설정 (계정별, 토큰·서명 비밀은 응답에 안 나옴) |
+| `GET` | `/admin` · `/admin/usage` | 운영자용 LLM 사용량 (오늘·일별·팀별·계정별·용도별·모델별, 최근 호출) — `OBA_ADMIN_TOKEN` |
 | `POST` | `/api/vooy/test` · `/mock/vooy/webhook` | 웹훅 테스트 발송 · 데모용 모의 vooy 수신함 |
 
 `/api/*`는 `X-Account` 헤더(개인 대시보드 토큰)가 필요합니다. 가입·체험 계정·샘플·공개 정보만 열려 있습니다.
+
+## LLM 사용량 기록
+
+LLM을 부를 때마다(실패·폴백 포함) 엔진·모델·용도(부탁 찾기/상품 고르기)·계정과 그 계정의 출처(SKT 체험, vooy 체험, vooy 가입, 대시보드 가입)·통화 ID·입력/캐시/출력 토큰·지연·결과·추정 비용·요청 ID를 SQLite `llm_usage` 표에 남깁니다. **프롬프트·응답 내용은 남기지 않습니다.**
+
+- 운영자 화면: `/admin` (토큰 입력) — 팀별로 SKT·vooy가 얼마나 썼는지 바로 보입니다
+- 명령: `uv run oba-usage [일수]` (서버: `fly ssh console -C /app/.venv/bin/oba-usage`)
+- 로그: 호출마다 `[llm-usage] openai/gpt-4o-mini extract ok 812ms in=1234 cached=0 out=210 $0.000311 …` 한 줄
+- 비용은 OpenAI 공식 단가표(2026-11) 기준 추정치입니다. 단가를 모르는 모델은 비용을 비워 두고 `OBA_LLM_PRICES`로 넣을 수 있습니다.
 
 ## 보안·개인정보
 
@@ -162,10 +175,11 @@ src/oba_hack/
   extract.py     부탁 추출 (LLM + 규칙 기반 폴백, 사칭 탐지, 번호 가림)
   choose.py      LLM이 엄마 상황을 보고 상품 선택
   llm.py         SKT A.X → OpenAI → Claude 순서와 폴백
+  usage.py       LLM 사용량 기록·추정 비용·하루 한도·요약(/admin, oba-usage)
   family.py      가입·체험 계정·번호 정규화·통화/발신자 매칭
   ingest.py      단축어 업로드 수신 (공유 1탭, 문자 자동화)
   policy.py · payment.py · catalog.py · store.py · samples.py · ratelimit.py
-  static/        index.html(대시보드), skt.html, vooy.html, site.css/js, vooy-recipe.txt
+  static/        index.html(대시보드), skt.html, vooy.html, admin.html, site.css/js, vooy-recipe.txt
   samples/       데모 통화 (에이닷 요약·할일 포함)
 ```
 

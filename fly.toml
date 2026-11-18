@@ -7,6 +7,8 @@ primary_region = "nrt"
   OBA_PORT = "8080"
   OBA_DEMO_MODE = "1"
   TZ = "Asia/Seoul"
+  # 공개 데모라 OpenAI 추정 비용이 하루 $5를 넘으면 LLM을 쉬고 규칙 기반으로 처리 (사용량은 /admin)
+  OBA_LLM_DAILY_USD_LIMIT = "5"
 
 [http_service]
   internal_port = 8080

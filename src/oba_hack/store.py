@@ -28,6 +28,11 @@ def _db() -> sqlite3.Connection:
               kind text, id text, body text, updated real, primary key(kind, id));
             create table if not exists events(
               seq integer primary key autoincrement, ts real, kind text, ref text, body text);
+            create table if not exists llm_usage(
+              id integer primary key autoincrement, ts real, day text, provider text, model text, purpose text,
+              family_id text, ref text, ok integer, error text, latency_ms integer, prompt_tokens integer,
+              cached_tokens integer, completion_tokens integer, total_tokens integer, cost_usd real, request_id text);
+            create index if not exists llm_usage_day on llm_usage(day);
             """
         )
     return _conn

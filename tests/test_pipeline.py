@@ -88,7 +88,7 @@ def test_untrusted_caller_blocked_and_policy_change_allows_new_items(client):
 def test_llm_result_is_used_and_scam_rules_still_apply(monkeypatch):
     from oba_hack import llm
 
-    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0: {
+    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0, **kw: {
         "summary": "쌀 부탁", "requests": [{"item": "쌀", "quantity": "2", "evidence": "쌀 두 포대 시켜줘"}],
     })
     monkeypatch.setenv("OPENAI_API_KEY", "x")
@@ -124,7 +124,7 @@ def test_llm_receives_redacted_transcript(monkeypatch):
 
     seen = {}
 
-    def fake(system, user, timeout=40.0):
+    def fake(system, user, timeout=40.0, **kw):
         seen["user"] = user
         return {"summary": "", "requests": []}
 
@@ -148,7 +148,7 @@ def test_ax_chooses_product_with_reason_and_falls_back(client, monkeypatch):
 
     c, _ = client
     login(c)
-    def fake(system, user, timeout=40.0):
+    def fake(system, user, timeout=40.0, **kw):
         if "쇼핑 비서" in system:   # 상품 선택 요청
             return {"product_id": "p-chondroitin-b", "reason": "소화가 약하셔서 부담 적은 제품으로 골랐어요",
                     "search_keyword": "콘드로이친", "buy_criteria": ["1일 1정", "4만원 이하"]}
@@ -161,7 +161,7 @@ def test_ax_chooses_product_with_reason_and_falls_back(client, monkeypatch):
     assert o["ai_pick"]["search_keyword"] == "콘드로이친" and "소화" in o["product"]["reasons"][0]
 
     # 후보 밖을 고르면 규칙 선택으로
-    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0: (
+    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0, **kw: (
         {"product_id": "없는상품"} if "쇼핑 비서" in s else
         {"summary": "", "requests": [{"item": "콘드로이친", "quantity": 1, "evidence": "콘드로이친 사줘"}]}))
     c.post("/api/calls", json={"transcript": "엄마: 콘드로이친 사줘.", "caller": "엄마"})

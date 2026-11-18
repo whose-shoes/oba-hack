@@ -93,6 +93,7 @@ def process_call(call_id: str) -> dict:
     if call is None:
         raise KeyError(call_id)
     account.log_family.set(call.get("family_id"))
+    account.log_ref.set(call_id)
 
     if not call.get("transcript"):
         text, how = transcript_from_files(data_dir() / "calls" / call_id, call.get("files", []))

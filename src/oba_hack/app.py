@@ -11,12 +11,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import account, catalog, family, ingest, llm, mcp_server, notify, pipeline, policy, ratelimit, samples, store, telco
+from . import (account, catalog, family, ingest, llm, mcp_server, notify, pipeline, policy, ratelimit, samples, store,
+               telco, usage)
 from .config import data_dir, demo_mode, telco_signing_secret
 
 STATIC = Path(__file__).parent / "static"
@@ -51,7 +52,7 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 async def revalidate_pages(request: Request, call_next):
     """페이지·정적 파일은 매번 다시 확인하게 한다 (재배포 뒤 옛 화면이 캐시에서 뜨지 않도록, 바뀐 게 없으면 304)."""
     response = await call_next(request)
-    if request.url.path in ("/", "/skt", "/vooy") or request.url.path.startswith("/static/"):
+    if request.url.path in ("/", "/skt", "/vooy", "/admin") or request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-cache"
     return response
 
@@ -81,6 +82,28 @@ def skt_page() -> FileResponse:
 def vooy_page() -> FileResponse:
     """vooy 팀용 시작 페이지: MCP 연결·레시피·도구 목록과 체험 계정."""
     return FileResponse(STATIC / "vooy.html")
+
+
+# ---------- 운영자: LLM 사용량 (OBA_ADMIN_TOKEN) ----------
+
+def require_admin(authorization: str = Header(default="")) -> None:
+    token = os.environ.get("OBA_ADMIN_TOKEN", "")
+    if not token:
+        raise HTTPException(404, "not found")
+    if not hmac.compare_digest(authorization.encode(), f"Bearer {token}".encode()):
+        raise HTTPException(401, "invalid token")
+
+
+@app.get("/admin")
+def admin_page() -> FileResponse:
+    """운영자용 LLM 사용량 화면 (토큰은 화면에서 입력, 주소에 넣지 않음)."""
+    return FileResponse(STATIC / "admin.html")
+
+
+@app.get("/admin/usage", dependencies=[Depends(require_admin)])
+def admin_usage(days: int = 14, recent: int = 50) -> dict:
+    """LLM 사용량: 오늘·일별·팀별·계정별·용도별·모델별 합계와 최근 호출 (프롬프트·응답 내용은 없음)."""
+    return usage.summary(max(1, min(days, 90)), max(1, min(recent, 500)))
 
 
 def _limit(request: Request, key: str, limit: int, window_sec: float) -> None:
@@ -113,7 +136,8 @@ def start_demo(request: Request, body: DemoIn | None = None) -> dict:
         raise HTTPException(404, "not found")
     _limit(request, "demo", 20, 3600)
     vooy = (body.audience if body else "") == "vooy"
-    fam = family.register_demo("vooy 체험" if vooy else "체험", payment_executor="vooy" if vooy else "server")
+    fam = family.register_demo("vooy 체험" if vooy else "체험", payment_executor="vooy" if vooy else "server",
+                               origin="vooy 체험" if vooy else "SKT 체험")
     return family.public(fam)
 
 
@@ -298,7 +322,8 @@ def signup(body: SignupIn, request: Request) -> dict:
     if any(f["child_phone"] == family.normalize_phone(body.child_phone) for f in family.families()):
         raise HTTPException(409, "이미 가입된 번호예요. 가입할 때 받은 개인 대시보드 링크로 들어와 주세요.")
     try:
-        fam = family.register(body.child_name, body.child_phone, [p.model_dump() for p in body.parents])
+        fam = family.register(body.child_name, body.child_phone, [p.model_dump() for p in body.parents],
+                              origin="대시보드 가입")
     except ValueError as e:
         raise HTTPException(400, str(e))
     return family.public(fam)

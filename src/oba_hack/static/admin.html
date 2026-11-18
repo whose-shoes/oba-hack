@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>LLM 사용량 · don't call me, Mama</title>
+<link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css">
+<link rel="stylesheet" href="/static/site.css">
+<style>
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:760px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--surface-2);border:1px solid var(--line-2);border-radius:14px;padding:12px 14px}
+.kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--fg-tertiary);font-size:12.5px}
+table.spec td,table.spec th{font-variant-numeric:tabular-nums;white-space:nowrap}
+table.spec td.wrap{white-space:normal;min-width:160px}
+.bar{height:6px;border-radius:3px;background:var(--brand);min-width:2px}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="logo" href="/admin">don't call me, <b>Mama</b> <span class="x">· LLM 사용량</span></a>
+  <div class="chips"><span class="chip" id="limit">한도 확인 중</span><button class="sm" id="reload">새로고침</button><button class="sm" id="logout">토큰 지우기</button></div>
+</div></header>
+<main class="wrap">
+  <section class="card" id="login">
+    <h2>운영자 토큰</h2>
+    <p class="sub">서버의 <code>OBA_ADMIN_TOKEN</code>을 넣으세요. 이 브라우저에만 저장되고 주소에는 넣지 않습니다.</p>
+    <div class="inline-copy"><input id="tok" type="password" autocomplete="off" placeholder="OBA_ADMIN_TOKEN" aria-label="운영자 토큰"><button class="primary sm" id="go">보기</button></div>
+    <div class="sub" id="err"></div>
+  </section>
+  <div id="view" hidden>
+    <section class="card">
+      <h2>오늘</h2>
+      <div class="kpis" id="kpis"></div>
+      <p class="sub" id="note"></p>
+    </section>
+    <section class="card"><h2>팀별 <span class="sub">— 계정이 만들어진 곳 기준</span></h2><div class="table-wrap" id="teams"></div></section>
+    <section class="card"><h2>일별</h2><div class="table-wrap" id="days"></div></section>
+    <div class="grid2">
+      <section class="card"><h2>용도별</h2><div class="table-wrap" id="purposes"></div></section>
+      <section class="card"><h2>모델별</h2><div class="table-wrap" id="models"></div></section>
+    </div>
+    <section class="card"><h2>계정별</h2><div class="table-wrap" id="accounts"></div></section>
+    <section class="card"><h2>최근 호출</h2><p class="sub">프롬프트·응답 내용은 기록하지 않습니다.</p><div class="table-wrap" id="recent"></div></section>
+  </div>
+</main>
+<script src="/static/site.js"></script>
+<script>
+const KEY = "dcmm-admin";
+const PURPOSE = {extract: "부탁 찾기", choose: "상품 고르기", "": "-"};
+const usd = v => v == null ? "—" : "$" + Number(v).toFixed(v < 0.01 ? 6 : 4);
+const n = v => (v ?? 0).toLocaleString("ko-KR");
+function tok() { try { return localStorage.getItem(KEY) || ""; } catch (_) { return ""; } }
+
+function table(rows, first, label = r => esc(r.key ?? "")) {
+  if (!rows.length) return `<div class="empty">기록이 없어요</div>`;
+  const max = Math.max(...rows.map(r => r.cost_usd || 0), 1e-9);
+  return `<table class="spec"><tr><th>${first}</th><th>호출</th><th>실패</th><th>입력 토큰</th><th>캐시</th><th>출력 토큰</th><th>추정 비용</th><th></th><th>평균 지연</th></tr>
+    ${rows.map(r => `<tr><td class="wrap">${label(r)}</td><td>${n(r.calls)}</td><td>${r.failed ? `<span class="badge block">${n(r.failed)}</span>` : 0}</td>
+      <td>${n(r.prompt_tokens)}</td><td>${n(r.cached_tokens)}</td><td>${n(r.completion_tokens)}</td>
+      <td>${usd(r.cost_usd)}${r.unpriced_calls ? ` <span class="sub">+단가 없음 ${r.unpriced_calls}</span>` : ""}</td>
+      <td style="width:90px"><div class="bar" style="width:${Math.round(80 * (r.cost_usd || 0) / max)}px"></div></td>
+      <td>${r.avg_latency_ms != null ? n(r.avg_latency_ms) + "ms" : ""}</td></tr>`).join("")}</table>`;
+}
+
+function render(s) {
+  const t = s.today || {calls: 0, failed: 0, prompt_tokens: 0, cached_tokens: 0, completion_tokens: 0, cost_usd: 0};
+  $("#limit").textContent = s.limit_usd_per_day ? `오늘 ${usd(s.spent_today_usd)} / 하루 한도 $${s.limit_usd_per_day}` : `오늘 ${usd(s.spent_today_usd)} · 하루 한도 없음`;
+  $("#kpis").innerHTML = [["호출", n(t.calls) + (t.failed ? ` (실패 ${n(t.failed)})` : "")], ["입력 토큰", n(t.prompt_tokens)],
+    ["출력 토큰", n(t.completion_tokens)], ["추정 비용", usd(t.cost_usd)]].map(([k, v]) => `<div class="kpi"><b>${v}</b><span>${k}</span></div>`).join("");
+  const p = s.prices_per_1m_usd || {};
+  $("#note").textContent = `${s.since}부터 ${s.days}일 합계: 호출 ${n(s.total?.calls)} · 추정 비용 ${usd(s.total?.cost_usd)}. 비용은 100만 토큰당 단가(예: gpt-4o-mini 입력 $${p["gpt-4o-mini"]?.input} · 캐시 $${p["gpt-4o-mini"]?.cached_input} · 출력 $${p["gpt-4o-mini"]?.output})로 계산한 추정치입니다.`;
+  $("#teams").innerHTML = table(s.by_team, "팀", r => `${esc(r.key)} <span class="sub">${r.accounts}계정</span>`);
+  $("#days").innerHTML = table(s.by_day, "날짜");
+  $("#purposes").innerHTML = table(s.by_purpose, "용도", r => esc(PURPOSE[r.key] ?? r.key));
+  $("#models").innerHTML = table(s.by_model, "엔진/모델");
+  $("#accounts").innerHTML = table(s.by_account, "계정", r => `${esc(r.origin)} · ${esc(r.child_name || "")} <span class="sub">${esc((r.family_id || "").slice(0, 10))}</span>`);
+  $("#recent").innerHTML = s.recent.length ? `<table class="spec"><tr><th>시각</th><th>엔진/모델</th><th>용도</th><th>결과</th><th>입력</th><th>캐시</th><th>출력</th><th>비용</th><th>지연</th><th>계정</th><th>통화</th></tr>
+    ${s.recent.map(r => `<tr><td>${esc(new Date(r.ts * 1000).toLocaleString("ko-KR", {hour12: false}))}</td><td>${esc(r.provider)}/${esc(r.model)}</td>
+      <td>${esc(PURPOSE[r.purpose] ?? r.purpose)}</td><td>${r.ok ? `<span class="badge ok">성공</span>` : `<span class="badge block" title="${esc(r.error)}">실패</span> <span class="sub">${esc((r.error || "").slice(0, 60))}</span>`}</td>
+      <td>${n(r.prompt_tokens)}</td><td>${n(r.cached_tokens)}</td><td>${n(r.completion_tokens)}</td><td>${usd(r.cost_usd)}</td><td>${n(r.latency_ms)}ms</td>
+      <td><span class="sub">${esc((r.family_id || "").slice(0, 10))}</span></td><td><span class="sub">${esc(r.ref || "")}</span></td></tr>`).join("")}</table>` : `<div class="empty">기록이 없어요</div>`;
+}
+
+async function load() {
+  const t = tok();
+  if (!t) { $("#login").hidden = false; $("#view").hidden = true; return; }
+  const r = await fetch("/admin/usage?days=14&recent=100", {headers: {Authorization: "Bearer " + t}});
+  if (r.status === 401 || r.status === 404) {
+    $("#err").textContent = r.status === 404 ? "서버에 OBA_ADMIN_TOKEN이 설정돼 있지 않아요." : "토큰이 맞지 않아요.";
+    try { localStorage.removeItem(KEY); } catch (_) {}
+    $("#login").hidden = false; $("#view").hidden = true; return;
+  }
+  render(await r.json());
+  $("#login").hidden = true; $("#view").hidden = false;
+}
+
+$("#go").onclick = () => { try { localStorage.setItem(KEY, $("#tok").value.trim()); } catch (_) {} $("#tok").value = ""; load(); };
+$("#tok").addEventListener("keydown", e => { if (e.key === "Enter") $("#go").click(); });
+$("#reload").onclick = load;
+$("#logout").onclick = () => { try { localStorage.removeItem(KEY); } catch (_) {} load(); };
+load();
+setInterval(() => { if (tok()) load(); }, 30000);
+</script>
+</body>
+</html>

@@ -95,21 +95,22 @@ def demo_numbers() -> tuple[str, str]:
             return child, mom
 
 
-def register_demo(child_name: str = "체험", payment_executor: str = "server") -> dict:
+def register_demo(child_name: str = "체험", payment_executor: str = "server", origin: str = "체험") -> dict:
     """체험용 샌드박스 계정: 데모 번호·배송지·엄마 메모를 채워 바로 쓸 수 있게 만든다.
 
     payment_executor: "server"(우리 서버가 테스트 결제) | "vooy"(vooy가 1회용 토큰으로 테스트몰 결제)
+    origin: 어디서 만든 계정인지 (사용량을 팀별로 볼 때 씀)
     """
     child, mom = demo_numbers()
     fam = register(child_name, child, [{"label": "엄마", "phone": mom, "address": DEMO_ADDRESS,
-                                        "notes": list(DEMO_NOTES)}])
+                                        "notes": list(DEMO_NOTES)}], origin=origin)
     fam["demo"] = True
     if payment_executor == "vooy":
         policy.update({"payment_executor": "vooy", "vooy_checkout": "test_mall"}, fam["id"])
     return store.put("family", fam["id"], fam)
 
 
-def register(child_name: str, child_phone: str, parents: list[dict]) -> dict:
+def register(child_name: str, child_phone: str, parents: list[dict], origin: str = "") -> dict:
     child = normalize_phone(child_phone)
     if len(child) < 9:
         raise ValueError("내 번호를 확인해 주세요.")
@@ -141,6 +142,7 @@ def register(child_name: str, child_phone: str, parents: list[dict]) -> dict:
         "mcp_token": secrets.token_urlsafe(16),        # 개인 vooy 연결 주소 /mcp/<토큰>
         "dashboard_token": secrets.token_urlsafe(16),  # 개인 대시보드 링크 /?a=<토큰>
         "created_at": now(),
+        "origin": origin,       # SKT 체험 / vooy 체험 / vooy 가입(MCP) / 대시보드 가입
         "parents": ps,
     }
     store.put("family", fam["id"], fam)

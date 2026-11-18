@@ -16,7 +16,8 @@ fly secrets set --app dont-call-me-mama --stage \
   OBA_PUBLIC_URL=https://dont-call-me-mama.fly.dev \
   OBA_MCP_TOKEN="$(python3 -c 'import secrets;print(secrets.token_urlsafe(18))')" \
   OBA_TELCO_TOKEN="$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')" \
-  OBA_UPLOAD_TOKEN="$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')"
+  OBA_UPLOAD_TOKEN="$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')" \
+  OBA_ADMIN_TOKEN="$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')"
 
 # LLM 키 (.env에 있는 값을 화면에 찍지 않고 옮기기)
 set -a; source .env; set +a
@@ -35,6 +36,9 @@ curl https://dont-call-me-mama.fly.dev/health    # {"ok": true, "llm": "OpenAI"}
 
 ## 운영
 
+- LLM 사용량: `https://dont-call-me-mama.fly.dev/admin`에서 `OBA_ADMIN_TOKEN` 입력, 또는
+  `fly ssh console --app dont-call-me-mama -C /app/.venv/bin/oba-usage`, 또는 `fly logs --app dont-call-me-mama | grep llm-usage`
+- 하루 비용 한도는 `fly.toml`의 `OBA_LLM_DAILY_USD_LIMIT` (기본 $5). 넘으면 그날은 규칙 기반으로 처리
 - 로그: `fly logs --app dont-call-me-mama`
 - 공용 MCP 주소·통신사 토큰 확인: `fly ssh console --app dont-call-me-mama -C 'printenv OBA_MCP_TOKEN OBA_TELCO_TOKEN'`
 - 데이터 초기화(모든 체험 계정 삭제): `fly ssh console --app dont-call-me-mama -C 'rm -rf /data/oba.db /data/calls'` 후 `fly machine restart`

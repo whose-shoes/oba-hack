@@ -13,6 +13,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("OBA_TELCO_TOKEN", "telco-token")
     monkeypatch.delenv("OBA_TELCO_SIGNING_SECRET", raising=False)
     for k in ("OBA_AX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OBA_STT_API_KEY", "OBA_PUBLIC_URL",
+              "OBA_ADMIN_TOKEN", "OBA_LLM_DAILY_USD_LIMIT", "OBA_LLM_PRICES",
               "OBA_VOOY_PUSH_URL", "OBA_VOOY_PUSH_TOKEN", "OBA_VOOY_USER_ID", "OBA_VOOY_SIGNING_SECRET"):
         monkeypatch.delenv(k, raising=False)  # 규칙 기반 경로로 결정적으로 테스트
     from oba_hack import ratelimit

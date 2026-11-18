@@ -40,7 +40,7 @@ def choose(req: dict, candidates: list[dict], notes: str, history: list[dict], m
         "max_amount": max_amount,
         "candidates": cands,
     }, ensure_ascii=False)
-    out = llm.chat_json(SYSTEM, prompt)
+    out = llm.chat_json(SYSTEM, prompt, purpose="choose")
     if not out or out.get("product_id") not in {c["id"] for c in candidates}:
         return None
     engine = llm.engine_of(out)

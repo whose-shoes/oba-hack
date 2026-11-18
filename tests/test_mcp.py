@@ -137,7 +137,7 @@ def test_family_notes_reach_the_llm_prompt(client, monkeypatch):
     c, _ = client
     seen = {}
 
-    def fake(system, user, timeout=40.0):
+    def fake(system, user, timeout=40.0, **kw):
         seen["user"] = user
         return {"summary": "", "requests": []}
 

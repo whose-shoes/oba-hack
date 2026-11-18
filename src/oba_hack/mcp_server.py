@@ -212,7 +212,7 @@ def setup_parent(
             fam = family.register(child_name or "자녀", child_phone, [{
                 "label": parent_label or "엄마", "phone": parent_phone, "name": parent_name, "address": address,
                 "birthday": birthday, "notes": [note] if note else [],
-            }])
+            }], origin="vooy 가입(MCP)")
             # vooy로 가입한 계정은 vooy가 결제를 실행한다 (서버는 승인·한도·차단만, 결제는 테스트몰 1회용 토큰)
             policy.update({"payment_executor": "vooy", "vooy_checkout": "test_mall"}, fam["id"])
             account.log_family.set(fam["id"])
