@@ -70,6 +70,9 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
         return None
 
     lines = [f"{josa(label, '과', '와')} 통화에서 부탁 {len(orders) + len(tasks)}건을 정리했어요."]
+    if ex.get("scam_signals"):
+        lines.append(f"⚠️ 사칭 의심 표현이 있어요({', '.join(ex['scam_signals'])}). {label} 번호로 왔어도 "
+                     f"{label}께 직접 전화해서 맞는지 확인해 보세요.")
     if paid:
         lines.append("✅ 늘 사던 거라 주문했어요: " + ", ".join(
             f"{o['product']['name']} {won(o['total'])}" for o in paid) + f" ({label}께 문자 보냄)")

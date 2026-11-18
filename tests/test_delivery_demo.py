@@ -217,3 +217,22 @@ def test_start_pages_and_public_info(client):
     shown = json.dumps(info)
     assert "telco-token" not in shown and "test-token" not in shown        # 토큰은 공개 정보에 없다
     assert "get_new_parent_requests" in c.get("/static/vooy-recipe.txt").text
+
+
+def test_scam_hidden_as_other_task_is_still_blocked_and_warned(client, monkeypatch):
+    """LLM이 '상품권 사서 번호 보내 줘'를 구매 외 부탁으로 분류해도: 차단 주문으로 올리고, 일반 할 일로 보이지 않고, 경고한다."""
+    c, _ = client
+    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0, **kw: (
+        {"summary": "상품권 부탁", "requests": [], "other_tasks": ["문화상품권 5만원권 4장 구매 후 번호 전달"],
+         "scam_signals": []} if "쇼핑 비서" not in s else None))
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
+    fam = family.register("지누", CHILD, [{"label": "엄마", "phone": MOM}])
+    c.headers["X-Account"] = fam["dashboard_token"]
+    talk = "엄마: 딸 엄마야. 폰이 고장나서 친구 폰으로 전화했어.\n엄마: 급하게 문화상품권 좀 사줘야 돼. 5만원짜리 4장만 사서 번호 보내줘."
+    c.post("/api/simulate/call-ended", json={"transcript": talk})
+    st = c.get("/api/state").json()
+    assert [o["status"] for o in st["orders"]] == ["blocked"] and st["orders"][0]["product"]["category"] == "상품권"
+    call = st["calls"][0]
+    assert call["extraction"]["other_tasks"] == [] and "폰이 고장" in call["extraction"]["scam_signals"]
+    digest = notify.store.get("digest", call["id"])
+    assert "⚠️ 사칭 의심" in digest["text"] and "🚫 결제 안 함" in digest["text"] and "📌" not in digest["text"]
