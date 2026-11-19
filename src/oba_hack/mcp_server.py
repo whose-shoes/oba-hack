@@ -340,7 +340,7 @@ def get_new_parent_requests(ctx: Context) -> dict[str, Any]:
 
 STATUS_WHY = {
     "blocked": "🚫 결제를 막은 주문이에요: {reason} {caller}께 직접 전화해 확인해 보세요.",
-    "paid": "이미 결제한 주문이에요. 취소하려면 cancel_order를 쓰세요.",
+    "paid": "이미 결제한 주문이에요: {product}{number}. 다시 결제하지 않았어요. 취소하려면 cancel_order를 쓰세요.",
     "cancelled": "이미 취소·환불한 주문이에요.",
     "rejected": "사지 않기로 한 주문이에요.",
     "not_found": "맞는 상품을 못 찾은 부탁이에요. 사용자에게 어떤 상품을 원하는지 물어봐 주세요.",
@@ -350,16 +350,34 @@ STATUS_WHY = {
 }
 
 
+def _why(o: dict) -> str | None:
+    """주문이 지금 상태라서 요청한 일을 할 수 없는 이유 (vooy가 사용자에게 그대로 보여 줄 문장)."""
+    why = STATUS_WHY.get(o["status"])
+    if why is None:
+        return None
+    rc = o.get("receipt") or {}
+    num = rc.get("order_number") or rc.get("tx_id") or ""
+    return why.format(reason=o.get("decision_reason", ""), caller=o.get("caller", "엄마"),
+                      product=(o.get("product") or {}).get("name") or (o.get("request") or {}).get("item", ""),
+                      number=f" (주문번호 {num})" if num else "")
+
+
+def _missing(ref: str, fid: str) -> dict[str, Any]:
+    """찾는 상태의 주문이 없을 때: 같은 주문이 다른 상태(이미 결제·취소·차단 등)면 그 이유를, 아니면 '못 찾음'을 알린다."""
+    o = _find_order(ref, tuple(STATUS_WHY), fid)
+    if o is not None and o["status"] in STATUS_WHY:
+        return {"ok": False, "order": _brief(o), "message": _why(o)}
+    return {"ok": False, "message": f"‘{ref}’에 해당하는 주문을 찾지 못했어요. list_parent_requests로 확인해 주세요."}
+
+
 def _result(fn, ref: str, statuses: tuple[str, ...], fid: str, *args) -> dict[str, Any]:
     o = _find_order(ref, statuses, fid)
     if o is None:
-        return {"ok": False, "message": f"‘{ref}’에 해당하는 주문을 찾지 못했어요. list_parent_requests로 확인해 주세요."}
+        return _missing(ref, fid)
     try:
         return {"ok": True, "order": _brief(fn(o["id"], *args))}
     except ValueError as e:
-        why = STATUS_WHY.get(o["status"])
-        msg = why.format(reason=o.get("decision_reason", ""), caller=o.get("caller", "엄마")) if why else f"처리할 수 없어요: {e}"
-        return {"ok": False, "order": _brief(o), "message": msg}
+        return {"ok": False, "order": _brief(o), "message": _why(o) or f"처리할 수 없어요: {e}"}
 
 
 def _vooy_pays(fid: str) -> bool:
@@ -479,7 +497,9 @@ def checkout_order(order_id: str, payment_token: str, message_to_mom: str = "",
         return _need_account()
     o = _find_order(order_id, ("authorized",), fam["id"])
     if o is None:
-        return {"ok": False, "message": f"‘{order_id}’에 해당하는 승인된 주문이 없어요. 먼저 approve_order로 승인을 받아 주세요."}
+        return _missing(order_id, fam["id"])
+    if o["status"] != "authorized" and _why(o):  # order_id로 찾았는데 이미 결제·취소·차단된 주문
+        return {"ok": False, "order": _brief(o), "message": _why(o)}
     try:
         o = pipeline.checkout(o["id"], payment_token, message_to_mom)
     except ValueError as e:
@@ -512,7 +532,9 @@ def report_purchase(order_id: str, success: bool = True, merchant: str = "", pai
         return _need_account()
     o = _find_order(order_id, ("authorized",), fam["id"])
     if o is None:
-        return {"ok": False, "message": f"‘{order_id}’에 해당하는 승인된 주문이 없어요. 먼저 approve_order로 승인을 받아 주세요."}
+        return _missing(order_id, fam["id"])
+    if o["status"] != "authorized" and _why(o):
+        return {"ok": False, "order": _brief(o), "message": _why(o)}
     try:
         o = pipeline.record_purchase(o["id"], success, merchant, paid_amount, order_number, note, message_to_mom,
                                      product_name, product_url)

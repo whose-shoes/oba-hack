@@ -38,10 +38,22 @@ async def lifespan(_: FastAPI):
     async with mcp_server.server.session_manager.run():  # vooy용 MCP(Streamable HTTP)
         print(f"[mcp] vooy 연결 주소: {mcp_server.public_url()}", flush=True)
         task = asyncio.create_task(_retry_loop())
+        resume = asyncio.create_task(_resume_interrupted())  # 서버를 기다리게 하지 않고 뒤에서
         try:
             yield
         finally:
             task.cancel()
+            resume.cancel()
+
+
+async def _resume_interrupted() -> None:
+    """처리 도중 서버가 꺼져(배포·재시작·머신 정지) 멈춘 통화를 이어서 처리한다."""
+    try:
+        done = await asyncio.to_thread(pipeline.resume_interrupted)
+        if done:
+            print(f"[resume] 멈춰 있던 통화 {len(done)}건을 이어서 처리했어요: {', '.join(done)}", flush=True)
+    except Exception as e:  # 시작은 막지 않는다
+        print(f"[resume] error: {e!r}", flush=True)
 
 
 app = FastAPI(title="don't call Mama", lifespan=lifespan)

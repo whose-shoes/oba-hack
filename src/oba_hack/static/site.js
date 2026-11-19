@@ -4,7 +4,12 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const won = n => (n ?? 0).toLocaleString("ko-KR") + "원";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const hhmm = ts => new Date(ts * 1000).toTimeString().slice(0, 5);
+// 시각은 보는 사람의 브라우저 시간대와 상관없이 한국 시간으로 (서버 기록·엄마 문자와 같은 기준)
+const hhmm = ts => new Date(ts * 1000).toLocaleTimeString("en-GB", {timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hourCycle: "h23"});
+// 서버가 주는 시각 문자열은 한국 시간이고 시간대 표기가 없다 → +09:00으로 읽는다
+const kstDate = s => new Date(/(Z|[+-]\d\d:?\d\d)$/i.test(s) ? s : s + "+09:00");
+// 지금 한국 시각을 ISO 8601(+09:00)로
+const kstNowIso = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 19) + "+09:00";
 
 // 계정 토큰 저장 키: 시작 페이지마다 따로 둬서 SKT 체험과 vooy 체험 계정이 섞이지 않게 한다
 let ACC_KEY = "dcmm-account";

@@ -97,25 +97,38 @@ def process_call(call_id: str) -> dict:
     account.log_family.set(call.get("family_id"))
     account.log_ref.set(call_id)
 
-    if not call.get("transcript"):
-        text, how = transcript_from_files(data_dir() / "calls" / call_id, call.get("files", []))
-        if text is None:
-            call["status"] = "needs_transcript"
-            store.put("call", call_id, call)
-            store.log("push_to_child", call_id, "통화 녹음을 받았어요. 에이닷 요약/텍스트를 붙여 넣어 주세요.")
-            return call
-        call["transcript"] = text
-        store.log("step", call_id, f"전사 확보: {how}")
+    resuming = call.get("status") == "extracted" and call.get("extraction") is not None
+    if resuming:  # 재시작 복구: 부탁 추출은 끝나 있으니 그 결과를 그대로 쓴다
+        result, engine = call["extraction"], call.get("engine")
+    else:
+        if not call.get("transcript"):
+            text, how = transcript_from_files(data_dir() / "calls" / call_id, call.get("files", []))
+            if text is None:
+                call["status"] = "needs_transcript"
+                store.put("call", call_id, call)
+                store.log("push_to_child", call_id, "통화 녹음을 받았어요. 에이닷 요약/텍스트를 붙여 넣어 주세요.")
+                return call
+            call["transcript"] = text
+            store.log("step", call_id, f"전사 확보: {how}")
 
-    result, engine = extract.extract(call["transcript"], context=family.notes_for(call.get("family_id")),
-                                     todos=(call.get("aidot") or {}).get("todos"))
-    call.update(extraction=result, engine=engine, status="extracted")
-    store.log("step", call_id, f"부탁 추출({engine}): {result.get('summary', '')}")
-    store.put("call", call_id, call)
+        result, engine = extract.extract(call["transcript"], context=family.notes_for(call.get("family_id")),
+                                         todos=(call.get("aidot") or {}).get("todos"))
+        call.update(extraction=result, engine=engine, status="extracted")
+        store.log("step", call_id, f"부탁 추출({engine}): {result.get('summary', '')}")
+        store.put("call", call_id, call)
 
     reqs = result.get("requests", [])
-    preps = _prepare_all(call, reqs)  # 상품 후보·LLM 선택은 품목별로 동시에
-    orders = [_make_order(call, req, result.get("scam_signals", []), prep) for req, prep in zip(reqs, preps)]
+    # 재시작 복구: 이 통화로 이미 만든 주문은 그대로 쓴다 (같은 부탁을 두 번 주문·결제하지 않게)
+    pool = [o for o in store.all_docs("order") if o.get("call_id") == call_id] if resuming else []
+    made = []
+    for req in reqs:
+        hit = next((o for o in pool if o.get("request") == req), None)
+        if hit is not None:
+            pool.remove(hit)
+        made.append(hit)
+    todo = [req for req, hit in zip(reqs, made) if hit is None]
+    preps = iter(_prepare_all(call, todo))  # 상품 후보·LLM 선택은 품목별로 동시에
+    orders = [hit or _make_order(call, req, result.get("scam_signals", []), next(preps)) for req, hit in zip(reqs, made)]
     call["order_ids"] = [o["id"] for o in orders]
     call["status"] = "processed"
     store.put("call", call_id, call)
@@ -128,6 +141,39 @@ def process_call(call_id: str) -> dict:
     _report_to_mom(call, orders)
     notify.on_call_processed(call, orders)
     return call
+
+
+# 처리는 요청을 받은 서버 프로세스 안에서 돈다. 배포·재시작·무료 체험 머신 정지로 처리 도중 꺼지면
+# 통화가 '받음'·'추출됨'에 멈춰 있으므로, 서버가 켜질 때 이어서 처리한다.
+RESUMABLE = ("received", "extracted")
+RESUME_WINDOW_SEC = 2 * 3600  # 이보다 오래 멈춰 있던 통화는 늦게 주문하지 않고 '중단됨'으로 알린다
+
+
+def resume_interrupted() -> list[str]:
+    """멈춰 있던 통화를 이어서 처리하고, 처리한 통화 ID 목록을 돌려준다."""
+    resumed = []
+    for call in store.all_docs("call"):
+        if call.get("status") not in RESUMABLE:
+            continue
+        account.log_family.set(call.get("family_id"))
+        try:
+            age = (datetime.now() - datetime.fromisoformat(call.get("received_at") or "")).total_seconds()
+        except ValueError:
+            age = float("inf")
+        if age > RESUME_WINDOW_SEC:
+            call["status"] = "interrupted"
+            store.put("call", call["id"], call)
+            store.log("push_to_child", call["id"],
+                      f"{josa(call.get('caller') or '엄마', '과', '와')}의 통화를 처리하던 중 서버가 다시 시작돼 마치지 못했어요. "
+                      "필요하면 다시 보내 주세요.")
+            continue
+        store.log("step", call["id"], "서버가 다시 켜져서, 멈춰 있던 통화 처리를 이어서 해요")
+        try:
+            process_call(call["id"])
+            resumed.append(call["id"])
+        except Exception as e:  # 한 통화가 실패해도 나머지는 계속
+            print(f"[resume] {call['id']} failed: {e!r}", flush=True)
+    return resumed
 
 
 def purchase_history(family_id: str | None, caller: str) -> list[dict]:
@@ -147,6 +193,14 @@ def purchase_history(family_id: str | None, caller: str) -> list[dict]:
     return sorted(seed + paid, key=lambda h: h["date"])
 
 
+# 엄마가 상품을 자녀에게 맡긴 말 ("니가 알아서 해줘", "괜찮은 걸로 찾아봐")
+PICK_FOR_ME = ("알아서", "괜찮은 걸로", "괜찮은 거로", "좋은 걸로", "아무거나", "골라 줘", "골라줘", "찾아봐")
+
+
+def asks_to_pick(transcript: str | None) -> bool:
+    return any(k in (transcript or "") for k in PICK_FOR_ME)
+
+
 def _prepare(call: dict, req: dict) -> dict:
     """품목 하나의 구매 이력·상품 후보·LLM 선택. 결제·예산과 무관해 품목끼리 동시에 돌려도 된다."""
     fid = call.get("family_id")
@@ -156,7 +210,7 @@ def _prepare(call: dict, req: dict) -> dict:
     if candidates:
         ai = choose.choose(req, candidates, family.notes_for(fid),
                            [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")} for h in hist],
-                           policy.get(fid)["max_per_order"])
+                           policy.get(fid)["max_per_order"], delegated=asks_to_pick(call.get("transcript")))
     return {"hist": hist, "candidates": candidates, "ai": ai}
 
 
