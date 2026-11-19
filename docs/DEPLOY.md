@@ -47,6 +47,8 @@ curl https://dont-call-mama-skt.fly.dev/health    # {"ok": true, "llm": "OpenAI"
   `fly ssh console --app $APP -C /app/.venv/bin/oba-usage`, 또는 `fly logs --app $APP | grep llm-usage`
 - 하루 비용 한도는 설정 파일의 `OBA_LLM_DAILY_USD_LIMIT` (앱마다 $5). 넘으면 그날은 규칙 기반으로 처리
 - 로그: `fly logs --app $APP`
+- 처리 도중 서버가 꺼지면(배포·재시작·머신 정지) 다시 켜질 때 멈춘 통화를 이어서 처리합니다(로그 `[resume]`).
+  이미 만든 주문·결제는 다시 하지 않고, 2시간 넘게 멈춰 있던 통화는 늦게 주문하지 않고 자녀에게 '다시 보내 주세요'로 알립니다
 - 비밀값 확인: `fly ssh console --app $APP -C 'printenv OBA_MCP_TOKEN OBA_TELCO_TOKEN'`
 - 데이터 초기화(그 앱의 체험 계정 모두 삭제): `fly ssh console --app $APP -C 'rm -rf /data/oba.db /data/calls'` 후 `fly machine restart --app $APP`
 - 비용을 멈추려면: `fly scale count 0 --app $APP` (다시 켜기: `fly scale count 1 --app $APP`)

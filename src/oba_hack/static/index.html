@@ -106,7 +106,7 @@ section h2 .small{color:var(--fg-tertiary);font-weight:500}
 /* status badge (Montage content badge 느낌) */
 .st{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:var(--r-8);font-size:.75rem;font-weight:600;letter-spacing:.0252em;background:var(--surface-secondary);color:var(--fg-secondary)}
 .st.paid,.st.processed{background:var(--surface-positive);color:var(--fg-positive)}
-.st.awaiting_approval,.st.not_found,.st.ready_for_vooy,.st.authorized,.st.needs_transcript,.st.extracted,.st.received{background:var(--surface-cautionary);color:var(--fg-cautionary)}
+.st.awaiting_approval,.st.not_found,.st.ready_for_vooy,.st.authorized,.st.needs_transcript,.st.extracted,.st.received,.st.interrupted{background:var(--surface-cautionary);color:var(--fg-cautionary)}
 .st.blocked,.st.payment_failed{background:var(--surface-negative);color:var(--fg-negative)}
 .st.cancelled,.st.rejected{background:var(--surface-secondary);color:var(--fg-tertiary)}
 
@@ -283,7 +283,10 @@ body.no-account [data-panel=home] section:not(#onboard){display:none!important}
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const won = n => (n ?? 0).toLocaleString("ko-KR") + "원";
-const ST = {ready_for_vooy:"vooy 구매 대기",authorized:"vooy 결제 중",paid:"결제 완료",awaiting_approval:"승인 대기",blocked:"차단",payment_failed:"결제 실패",cancelled:"취소·환불",rejected:"주문 안 함",not_found:"상품 못 찾음",received:"수신",extracted:"분석 중",processed:"처리 완료",needs_transcript:"전사 필요"};
+// 시각은 브라우저 시간대와 상관없이 한국 시간으로 (서버가 주는 문자열은 한국 시간·시간대 표기 없음)
+const hhmm = ts => new Date(ts * 1000).toLocaleTimeString("en-GB", {timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hourCycle: "h23"});
+const kstDate = s => new Date(/(Z|[+-]\d\d:?\d\d)$/i.test(s) ? s : s + "+09:00");
+const ST = {ready_for_vooy:"vooy 구매 대기",authorized:"vooy 결제 중",paid:"결제 완료",awaiting_approval:"승인 대기",blocked:"차단",payment_failed:"결제 실패",cancelled:"취소·환불",rejected:"주문 안 함",not_found:"상품 못 찾음",received:"수신",extracted:"분석 중",processed:"처리 완료",needs_transcript:"전사 필요",interrupted:"중단됨 · 다시 보내 주세요"};
 const time = s => s ? s.slice(11,16) : "";
 let vooyPays = false, policyLoaded = false, vooyLoaded = false, last = "", famKey = null, maxSeq = null, fam = null, toastTimer, unseen = 0;
 
@@ -385,11 +388,11 @@ function render(s) {
   </div>`).join("") || `<div class="empty">통화가 오면 여기에 보여요.</div>`;
   const ev = [...s.events].reverse();
   $("#sms").innerHTML = ev.filter(e => e.kind === "sms_to_mom").map(e => `<div class="bubble mom">${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
-  $("#push").innerHTML = ev.filter(e => e.kind !== "sms_to_mom").map(e => `<div class="bubble ${e.kind.startsWith("vooy") ? "vooy" : ""}"><span class="sub small">${new Date(e.ts*1000).toTimeString().slice(0,5)}</span> ${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
+  $("#push").innerHTML = ev.filter(e => e.kind !== "sms_to_mom").map(e => `<div class="bubble ${e.kind.startsWith("vooy") ? "vooy" : ""}"><span class="sub small">${hhmm(e.ts)}</span> ${esc(e.text)}</div>`).join("") || `<div class="empty">아직 없음</div>`;
   for (const f of ["#sms","#push"]) $(f).scrollTop = 1e9;
   const v = s.vooy, st = v.stats, pl = v.poll || {};
   if (pl.last_polled_at) {
-    const ago = Math.max(0, Math.round((Date.now() - new Date(pl.last_polled_at).getTime()) / 60000));
+    const ago = Math.max(0, Math.round((Date.now() - kstDate(pl.last_polled_at).getTime()) / 60000));
     $("#pollstat").innerHTML = `${ago <= 6 ? "🟢" : "🟠"} vooy 마지막 폴링 <b>${time(pl.last_polled_at)}</b> (${ago}분 전) · 총 ${pl.polls}회 · 가져간 정리본 ${pl.taken}건`;
   } else {
     $("#pollstat").innerHTML = `⚪ 아직 vooy 폴링 기록이 없어요. vooy에 MCP를 연결하고 5분 반복 작업을 켜 주세요.`;

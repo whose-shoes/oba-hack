@@ -260,7 +260,7 @@ function pickScenario(sc) {
 function payloadFor(s, text) {
   const edited = text !== s.transcript;
   const from = S.scen.who === "unknown" ? UNKNOWN : momNumber();
-  return {call_id: "sim-…", from_number: from, to_number: childNumber(), ended_at: new Date().toISOString().slice(0, 19) + "+09:00",
+  return {call_id: "sim-…", from_number: from, to_number: childNumber(), ended_at: kstNowIso(),
           ...(edited ? {} : {summary: s.summary, todos: s.todos}), transcript: text};
 }
 function showRequest(body) {

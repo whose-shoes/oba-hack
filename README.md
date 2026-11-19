@@ -91,7 +91,7 @@ vooy의 서비스 연결에 MCP 주소를, Recipe Studio에 [레시피](src/oba_
 cp .env.example .env              # 토큰 바꾸기, LLM 키가 있으면 OPENAI_API_KEY 등
 set -a; source .env; set +a
 uv run oba-hack                   # http://localhost:8000 — / (대시보드), /skt, /vooy (OBA_AUDIENCE가 비어 있을 때)
-uv run pytest                     # 테스트 73개
+uv run pytest                     # 테스트 79개
 ```
 
 키가 없어도 **규칙 기반 추출**로 끝까지 동작합니다. 지금 쓰는 분석 엔진은 화면 상단에 표시됩니다. 배포는 [docs/DEPLOY.md](docs/DEPLOY.md) (Fly.io, 팀별 앱 2개).

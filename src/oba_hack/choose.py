@@ -17,9 +17,12 @@ SYSTEM = """너는 바쁜 자녀를 대신해 엄마의 부탁 물건을 고르�
 후보 상품 중 엄마에게 가장 맞는 하나를 고른다.
 규칙:
 - 반드시 후보 목록의 product_id 중 하나를 고른다. 후보 밖 상품을 지어내지 않는다.
-- 늘 쓰던 상품이 있으면 우선한다. 엄마가 "알아서" 골라 달라고 하면 건강 정보와 평점을 근거로 고른다.
+- 늘 쓰던 상품이 있으면 우선한다. mom_asked_you_to_pick이 true면 엄마가 "알아서" 골라 달라고 맡긴 것이니
+  엄마 정보(건강·선호)와 평점을 근거로 고른다.
 - 예산(max_amount)을 넘지 않는 상품을 우선한다.
-- reason은 엄마 상황을 반영한 한 문장(40자 안팎, 자녀에게 하는 말투).
+- reason은 고른 근거를 짚는 한 문장(40자 안팎, 자녀에게 하는 말투).
+  mom_info에 이 물건과 관련된 건강·선호 내용이 있으면 그 내용을 직접 언급한다(예: "무릎이 안 좋으시니 …").
+  거기에 실제로 쓴 근거(늘 쓰던 상품·평점·예산·배송)를 붙인다.
   근거는 후보에 주어진 사실(이름·가격·평점·배송)과 엄마 정보만 쓴다. 섭취 횟수·성분·효능처럼 주어지지 않은 정보는 지어내지 않는다.
 - search_keyword는 쇼핑몰 검색용 정식 명칭(오타·발음 교정, 예: 콘도로이친 → 콘드로이친).
 - buy_criteria는 다른 쇼핑몰에서 직접 고를 때 쓸 기준 2~3개(짧은 구, 예산·평점·배송처럼 확인 가능한 것).
@@ -27,7 +30,9 @@ JSON만 출력:
 {"product_id": "...", "reason": "...", "search_keyword": "...", "buy_criteria": ["...", "..."]}"""
 
 
-def choose(req: dict, candidates: list[dict], notes: str, history: list[dict], max_amount: int) -> dict | None:
+def choose(req: dict, candidates: list[dict], notes: str, history: list[dict], max_amount: int,
+           delegated: bool = False) -> dict | None:
+    """delegated: 엄마가 상품을 자녀에게 맡겼는지 ("니가 알아서 해줘")."""
     if not candidates:
         return None
     cands = [{"product_id": c["id"], "name": c["name"], "price": c["price"], "rating": c["rating"],
@@ -35,6 +40,7 @@ def choose(req: dict, candidates: list[dict], notes: str, history: list[dict], m
     prompt = json.dumps({
         "mom_request": {"item": req.get("item"), "detail": req.get("detail", ""),
                         "quantity": req.get("quantity", 1), "mom_said": redact(req.get("evidence", ""))},
+        "mom_asked_you_to_pick": bool(delegated),
         "mom_info": redact(notes),
         "purchase_history": [h.get("name") or h.get("product_id") for h in history],
         "max_amount": max_amount,
