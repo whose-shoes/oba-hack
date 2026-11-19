@@ -1,6 +1,6 @@
 """통화 기록 → '자식이 대신 해줘야 할 부탁' 구조화.
 
-LLM(A.X K2 / Claude)이 있으면 쓰고, 없거나 실패하면 규칙 기반으로 추출한다.
+LLM(SKT A.X / OpenAI / Claude)이 있으면 쓰고, 없거나 실패하면 규칙 기반으로 추출한다.
 모든 요청에는 통화 원문 근거(evidence)를 붙여, 자식이 왜 이 주문이 생겼는지 볼 수 있게 한다.
 """
 
@@ -25,11 +25,14 @@ SYSTEM = """너는 '엄마가 자식에게 건 전화' 통화 기록을 읽고, 
 규칙:
 - 엄마(발신자)가 사 달라고 하거나, 떨어졌다/다 썼다/필요하다고 말한 물건만 구매 요청으로 뽑는다.
 - 자식이 한 말, 이미 해결된 것, 단순 안부는 제외한다.
-- evidence에는 근거가 된 엄마의 말을 원문 그대로 인용한다.
+- evidence에는 근거가 된 엄마의 말을 원문 그대로 인용한다. 가능하면 그 품목 이름이 나온 문장을 고른다.
 - 상품권·기프트카드·송금·계좌·인증번호 요구, '폰이 고장' 같은 사칭 정황은 scam_signals에 적는다.
+- 상품권·기프트카드를 사 달라는 말은 "번호를 보내 달라"는 말이 붙어도 구매 요청이다. requests에 넣는다(결제는 정책이 막는다).
 - 구매가 아닌 부탁(병원 예약 등)은 other_tasks에 적는다.
 - '참고 정보'(자녀가 등록한 엄마의 선호·건강 메모)에 늘 쓰는 브랜드·규격이 있으면 detail에 반영한다.
   단, 통화에서 부탁하지 않은 물건을 참고 정보만 보고 requests에 넣지 않는다.
+- '에이닷 할일'(통화 요약에서 에이닷이 찾은 후속 조치)이 있으면 놓친 부탁이 없는지 확인하는 데 쓴다.
+  그래도 근거(evidence)는 반드시 통화 기록의 엄마 말에서 인용한다.
 JSON만 출력:
 {"summary": "한 문장 요약",
  "requests": [{"item": "일반 품목명(예: 휴지)", "detail": "규격/브랜드/옵션 또는 빈 문자열",
@@ -111,22 +114,46 @@ def redact(text: str) -> str:
     return LONG_NUMBER.sub("[번호]", PHONE.sub("[전화번호]", text))
 
 
-def extract(transcript: str, context: str = "") -> tuple[dict, str]:
-    """(추출 결과, 사용한 엔진 이름). context: 자녀가 등록한 가족 메모."""
+RISKY_ITEMS = ("상품권", "기프트", "기프티콘")  # 사칭 사기에 자주 쓰이는 품목
+
+
+def _guard(result: dict, transcript: str) -> dict:
+    """안전망: 사칭 정황이 있는 통화에서
+    - 상품권 같은 위험 품목을 LLM이 놓쳤으면 규칙 추출로 주문 후보에 올린다 → 정책이 결제를 막고 자녀에게 경고가 간다.
+    - 사칭 표현이 든 '구매 외 부탁'(예: "상품권 사서 번호 보내 줘")은 일반 할 일로 보여 주지 않는다."""
+    if not result.get("scam_signals"):
+        return result
+    have = " ".join(f"{r.get('item', '')} {r.get('detail', '')}" for r in result["requests"])
+    for r in rule_extract(transcript)["requests"]:
+        risky = any(k in f"{r['item']} {r['evidence']}" for k in RISKY_ITEMS)
+        if risky and not any(k in have for k in RISKY_ITEMS):
+            result["requests"].append(r)
+            have += f" {r['item']}"
+    result["other_tasks"] = [t for t in result.get("other_tasks", []) if not any(p in t for p in SCAM_PATTERNS)]
+    return result
+
+
+def extract(transcript: str, context: str = "", todos: list[str] | None = None) -> tuple[dict, str]:
+    """(추출 결과, 사용한 엔진 이름). context: 자녀가 등록한 가족 메모, todos: 에이닷이 통화 요약에서 찾은 할일."""
     prompt = f"통화 기록:\n{redact(transcript)}"
+    if todos:
+        prompt = "에이닷 할일(통화 요약에서 찾은 후속 조치):\n" + "\n".join(f"- {redact(t)}" for t in todos) + "\n\n" + prompt
     if context.strip():
         prompt = f"참고 정보(자녀가 등록한 가족 메모):\n{redact(context)}\n\n" + prompt
-    result = llm.chat_json(SYSTEM, prompt)
+    result = llm.chat_json(SYSTEM, prompt, purpose="extract")
+    engine = llm.engine_of(result) if result else ""
     if result and isinstance(result.get("requests"), list):
         result.setdefault("other_tasks", [])
         result.setdefault("scam_signals", [])
-        # LLM이 놓치더라도 사칭 정황은 규칙으로 한 번 더 잡는다
+        # LLM이 놓치더라도 사칭 정황은 규칙으로 한 번 더 잡는다. 표시는 짧은 키워드 위주로 (문장 통째는 빼고)
         rule_scam = [p for p in SCAM_PATTERNS if p in transcript]
-        result["scam_signals"] = sorted(set(result["scam_signals"]) | set(rule_scam))
+        extra = [str(x).strip() for x in result["scam_signals"] if str(x).strip()
+                 and not any(p in str(x) for p in rule_scam) and len(str(x).strip()) <= 20]
+        result["scam_signals"] = rule_scam + list(dict.fromkeys(extra))[:3]
         for r in result["requests"]:
             r["quantity"] = int(r.get("quantity") or 1)
             r.setdefault("detail", "")
             # "엄마: ..." 처럼 화자 표기가 붙어 오면 떼어 낸다
             r["evidence"] = re.sub(r"^\s*[^:：\s]{1,6}\s*[:：]\s*", "", r.get("evidence") or "")
-        return result, llm.provider_label()
-    return rule_extract(transcript), "규칙 기반"
+        return _guard(result, transcript), engine
+    return _guard(rule_extract(transcript), transcript), "규칙 기반"

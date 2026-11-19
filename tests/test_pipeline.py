@@ -88,14 +88,24 @@ def test_untrusted_caller_blocked_and_policy_change_allows_new_items(client):
 def test_llm_result_is_used_and_scam_rules_still_apply(monkeypatch):
     from oba_hack import llm
 
-    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0: {
+    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0, **kw: {
         "summary": "쌀 부탁", "requests": [{"item": "쌀", "quantity": "2", "evidence": "쌀 두 포대 시켜줘"}],
     })
-    monkeypatch.setenv("OBA_AX_API_KEY", "x")
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
     r, engine = extract.extract("엄마: 쌀 두 포대 시켜줘. 아 그리고 상품권도.")
-    assert engine == "SKT A.X K2"
+    assert engine == "OpenAI"
     assert r["requests"][0]["quantity"] == 2 and r["requests"][0]["detail"] == ""
     assert "상품권" in r["scam_signals"]
+
+
+def test_scam_signals_stay_short(monkeypatch):
+    from oba_hack import llm
+
+    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0, **kw: {
+        "summary": "", "requests": [], "scam_signals": ["폰이 고장나서 친구 폰으로 전화했어.", "급한 송금 요구", "번호 전달"]})
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
+    r, _ = extract.extract("엄마: 폰이 고장나서 친구 폰으로 전화했어. 상품권 사서 번호 보내줘.")
+    assert r["scam_signals"] == ["상품권", "폰이 고장", "급한 송금 요구", "번호 전달"]
 
 
 def test_llm_failure_falls_back_to_rules(monkeypatch):
@@ -104,7 +114,7 @@ def test_llm_failure_falls_back_to_rules(monkeypatch):
     def boom(*a, **k):
         raise httpx.ConnectError("down")
 
-    monkeypatch.setenv("OBA_AX_API_KEY", "x")
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
     monkeypatch.setattr(httpx, "post", boom)
     r, engine = extract.extract("엄마: 휴지 다 떨어졌어.")
     assert engine == "규칙 기반" and r["requests"][0]["item"] == "휴지"
@@ -124,7 +134,7 @@ def test_llm_receives_redacted_transcript(monkeypatch):
 
     seen = {}
 
-    def fake(system, user, timeout=40.0):
+    def fake(system, user, timeout=40.0, **kw):
         seen["user"] = user
         return {"summary": "", "requests": []}
 
@@ -148,7 +158,7 @@ def test_ax_chooses_product_with_reason_and_falls_back(client, monkeypatch):
 
     c, _ = client
     login(c)
-    def fake(system, user, timeout=40.0):
+    def fake(system, user, timeout=40.0, **kw):
         if "쇼핑 비서" in system:   # 상품 선택 요청
             return {"product_id": "p-chondroitin-b", "reason": "소화가 약하셔서 부담 적은 제품으로 골랐어요",
                     "search_keyword": "콘드로이친", "buy_criteria": ["1일 1정", "4만원 이하"]}
@@ -161,7 +171,7 @@ def test_ax_chooses_product_with_reason_and_falls_back(client, monkeypatch):
     assert o["ai_pick"]["search_keyword"] == "콘드로이친" and "소화" in o["product"]["reasons"][0]
 
     # 후보 밖을 고르면 규칙 선택으로
-    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0: (
+    monkeypatch.setattr(llm, "chat_json", lambda s, u, timeout=40.0, **kw: (
         {"product_id": "없는상품"} if "쇼핑 비서" in s else
         {"summary": "", "requests": [{"item": "콘드로이친", "quantity": 1, "evidence": "콘드로이친 사줘"}]}))
     c.post("/api/calls", json={"transcript": "엄마: 콘드로이친 사줘.", "caller": "엄마"})

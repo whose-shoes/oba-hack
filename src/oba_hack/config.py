@@ -32,3 +32,22 @@ def josa(word: str, with_batchim: str, without: str) -> str:
 def telco_token() -> str:
     """통신사(SKT) 연동 웹훅 인증 토큰."""
     return os.environ.get("OBA_TELCO_TOKEN", "")
+
+
+def demo_mode() -> bool:
+    """데모 서버 기능(샌드박스 계정, vooy용 데모 통화 도구, 통화 결과 조회)을 켤지. 기본 켬."""
+    return os.environ.get("OBA_DEMO_MODE", "1").strip().lower() not in ("0", "false", "no", "off", "")
+
+
+def telco_signing_secret() -> str:
+    """설정하면 통신사 웹훅에 HMAC 서명(X-Telco-Signature)도 요구한다."""
+    return os.environ.get("OBA_TELCO_SIGNING_SECRET", "")
+
+
+def audience() -> str:
+    """이 배포가 누구를 위한 것인지: "skt" | "vooy" | ""(로컬 개발 — 대시보드와 두 시작 페이지를 모두 띄움).
+
+    팀마다 배포를 따로 하고, 첫 화면(/)이 그 팀의 시작 페이지가 된다. 다른 팀 페이지는 열리지 않는다.
+    """
+    v = os.environ.get("OBA_AUDIENCE", "").strip().lower()
+    return v if v in ("skt", "vooy") else ""

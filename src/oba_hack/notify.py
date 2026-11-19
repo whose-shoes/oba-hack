@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
+import socket
 import threading
 import time
 from datetime import datetime
@@ -68,6 +70,9 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
         return None
 
     lines = [f"{josa(label, '과', '와')} 통화에서 부탁 {len(orders) + len(tasks)}건을 정리했어요."]
+    if ex.get("scam_signals"):
+        lines.append(f"⚠️ 사칭 의심 표현이 있어요({', '.join(ex['scam_signals'])}). {label} 번호로 왔어도 "
+                     f"{label}께 직접 전화해서 맞는지 확인해 보세요.")
     if paid:
         lines.append("✅ 늘 사던 거라 주문했어요: " + ", ".join(
             f"{o['product']['name']} {won(o['total'])}" for o in paid) + f" ({label}께 문자 보냄)")
@@ -111,33 +116,63 @@ def public(d: dict) -> dict:
     return {k: d.get(k) for k in ("id", "parent", "created_at", "call", "text", "items", "other_tasks")}
 
 
-# ---------- 설정 (환경변수 기본값 + 대시보드에서 바꾼 값) ----------
+# ---------- 설정 (계정별. 환경변수는 단일 계정 운영용 기본값) ----------
 
-def settings() -> dict:
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def settings(family_id: str | None = None) -> dict:
+    """그 계정의 웹훅 설정. 계정에 저장한 값이 없으면 환경변수 기본값을 쓴다."""
     env = {
         "push_url": os.environ.get("OBA_VOOY_PUSH_URL", ""),
         "push_token": os.environ.get("OBA_VOOY_PUSH_TOKEN", ""),
         "user_id": os.environ.get("OBA_VOOY_USER_ID", ""),
         "signing_secret": os.environ.get("OBA_VOOY_SIGNING_SECRET", ""),
     }
-    saved = store.get("settings", "vooy") or {}
+    saved = (store.get("settings", f"vooy:{family_id}") or {}) if family_id else {}
     return {k: saved[k] if k in saved else env[k] for k in FIELDS}
 
 
+def _dev_mode() -> bool:
+    """공개 주소가 없거나 localhost면 로컬 개발 — 이때만 http://localhost 웹훅을 허용한다."""
+    base = os.environ.get("OBA_PUBLIC_URL", "")
+    return not base or urlparse(base).hostname in LOCAL_HOSTS
+
+
+def _own_origin(u) -> bool:
+    """이 서버 자신의 공개 주소(모의 vooy 수신함)인지."""
+    base = urlparse(os.environ.get("OBA_PUBLIC_URL", ""))
+    return bool(base.hostname) and (u.scheme, u.hostname, u.port) == (base.scheme, base.hostname, base.port)
+
+
 def _check_url(url: str) -> None:
+    """웹훅 주소 검사: https만, 그리고 내부망(사설·루프백·링크로컬) 주소로는 보내지 않는다 (SSRF 방지)."""
     u = urlparse(url)
-    local = u.hostname in ("127.0.0.1", "localhost", "::1")
-    if not (u.scheme == "https" or (u.scheme == "http" and local)) or not u.hostname:
+    if u.scheme not in ("https", "http") or not u.hostname:
         raise ValueError("웹훅 주소는 https:// 로 시작해야 해요 (로컬 테스트만 http://localhost 허용).")
+    if u.hostname in LOCAL_HOSTS:
+        if _dev_mode():
+            return
+        raise ValueError("이 서버 내부 주소로는 보낼 수 없어요. 공개 https 주소를 넣어 주세요.")
+    if u.scheme != "https":
+        raise ValueError("웹훅 주소는 https:// 로 시작해야 해요 (로컬 테스트만 http://localhost 허용).")
+    if _own_origin(u):
+        return
+    try:
+        ips = {ipaddress.ip_address(a[4][0].split("%")[0]) for a in socket.getaddrinfo(u.hostname, u.port or 443)}
+    except (socket.gaierror, ValueError):
+        raise ValueError("웹훅 주소의 도메인을 찾을 수 없어요.")
+    if not ips or any(not ip.is_global for ip in ips):
+        raise ValueError("내부망 주소로는 보낼 수 없어요. 공개 https 주소를 넣어 주세요.")
 
 
-def update_settings(changes: dict) -> dict:
+def update_settings(changes: dict, family_id: str) -> dict:
     if changes.get("push_url"):
         _check_url(changes["push_url"].strip())
-    saved = store.get("settings", "vooy") or {}
+    saved = store.get("settings", f"vooy:{family_id}") or {}
     saved.update({k: (changes[k] or "").strip() for k in FIELDS if k in changes and changes[k] is not None})
-    store.put("settings", "vooy", saved)
-    return public_settings()
+    store.put("settings", f"vooy:{family_id}", saved)
+    return public_settings(family_id)
 
 
 def stats(family_id: str | None = None) -> dict:
@@ -168,7 +203,7 @@ def poll_status(family_id: str | None = None) -> dict:
 
 
 def public_settings(family_id: str | None = None) -> dict:
-    s = settings()
+    s = settings(family_id)
     return {
         "poll": poll_status(family_id),
         "push_url": s["push_url"],
@@ -196,7 +231,11 @@ def _post(payload: dict, s: dict, delivery_id: str) -> tuple[bool, str]:
     if s["signing_secret"]:
         headers["X-Oba-Signature"] = sign(s["signing_secret"], ts, body)
     try:
-        r = httpx.post(s["push_url"], content=body, headers=headers, timeout=10)
+        _check_url(s["push_url"])  # 저장 뒤 DNS가 바뀌었을 수도 있어 보낼 때마다 다시 확인
+    except ValueError as e:
+        return False, f"blocked: {e}"
+    try:
+        r = httpx.post(s["push_url"], content=body, headers=headers, timeout=10)  # 리디렉션은 따라가지 않는다 (httpx 기본값)
     except Exception as e:  # 연결 실패 등
         return False, type(e).__name__
     return (r.status_code < 300), f"HTTP {r.status_code}"
@@ -217,8 +256,8 @@ def _payload(d: dict, s: dict, event: str = "digest.created") -> dict:
 
 
 def push(digest: dict) -> bool:
-    """웹훅이 설정돼 있으면 보낸다. 성공하면 True. 설정이 없으면 보낼 함에 남겨 크론이 가져가게 한다."""
-    s = settings()
+    """그 계정에 웹훅이 설정돼 있으면 보낸다. 성공하면 True. 설정이 없으면 보낼 함에 남겨 크론이 가져가게 한다."""
+    s = settings(digest.get("family_id"))
     if not s["push_url"]:
         if not digest.get("attempts"):
             store.log("vooy_outbox", digest["id"], "💬 vooy로 보낼 정리본 준비됨 (크론이 가져가거나 웹훅을 켜면 전송): " + digest["text"])
@@ -247,12 +286,12 @@ def push(digest: dict) -> bool:
     return ok
 
 
-def retry_pending() -> int:
+def retry_pending(family_id: str | None = None) -> int:
     """보낼 함의 정리본을 백오프에 맞춰 다시 보낸다. 웹훅을 나중에 켜도 쌓인 정리본이 나간다."""
-    if not settings()["push_url"]:
-        return 0
     sent = 0
-    for d in pending():
+    for d in pending(family_id):
+        if not settings(d.get("family_id"))["push_url"]:
+            continue
         att = d.get("attempts", [])
         if len(att) >= MAX_ATTEMPTS:
             continue
@@ -264,14 +303,12 @@ def retry_pending() -> int:
     return sent
 
 
-def send_test() -> dict:
-    s = settings()
+def send_test(family_id: str) -> dict:
+    s = settings(family_id)
     if not s["push_url"]:
         return {"ok": False, "result": "웹훅 주소가 없어요."}
-    from . import account
-
-    sample = {"id": f"test-{int(time.time())}", "family_id": account.log_family.get(), "parent": "엄마", "created_at": now(),
-              "text": "[테스트] don't call me, Mama 웹훅 연결 확인 메시지예요.", "items": [], "other_tasks": []}
+    sample = {"id": f"test-{int(time.time())}", "family_id": family_id, "parent": "엄마", "created_at": now(),
+              "text": "[테스트] don't call Mama 웹훅 연결 확인 메시지예요.", "items": [], "other_tasks": []}
     ok, info = _post(_payload(sample, s, event="test"), s, sample["id"])
     store.log("vooy_sent" if ok else "vooy_retry", "test", f"vooy 웹훅 테스트 발송: {'성공' if ok else '실패'} ({info})")
     return {"ok": ok, "result": info}

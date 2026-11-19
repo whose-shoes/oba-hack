@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import contextvars
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -68,12 +70,15 @@ def transcript_from_files(call_dir: Path, files: list[dict]) -> tuple[str | None
 # ---------- 2. 통화 등록 ----------
 
 def register_call(call_id: str, files: list[dict], *, caller: str, source: str, transcript: str | None = None,
-                  family_id: str | None = None) -> dict:
+                  family_id: str | None = None, aidot: dict | None = None) -> dict:
+    """aidot: 에이닷이 함께 보낸 통화 요약·할일 {summary, todos}."""
     account.log_family.set(family_id)
     call = {
         "id": call_id, "caller": caller, "source": source, "received_at": now(), "family_id": family_id,
         "files": files, "transcript": transcript, "status": "received", "order_ids": [],
     }
+    if aidot and (aidot.get("summary") or aidot.get("todos")):
+        call["aidot"] = aidot
     store.put("call", call_id, call)
     store.log("step", call_id, f"{josa(caller, '과', '와')}의 통화 기록 수신 ({source})")
     return call
@@ -90,6 +95,7 @@ def process_call(call_id: str) -> dict:
     if call is None:
         raise KeyError(call_id)
     account.log_family.set(call.get("family_id"))
+    account.log_ref.set(call_id)
 
     if not call.get("transcript"):
         text, how = transcript_from_files(data_dir() / "calls" / call_id, call.get("files", []))
@@ -101,12 +107,15 @@ def process_call(call_id: str) -> dict:
         call["transcript"] = text
         store.log("step", call_id, f"전사 확보: {how}")
 
-    result, engine = extract.extract(call["transcript"], context=family.notes_for(call.get("family_id")))
+    result, engine = extract.extract(call["transcript"], context=family.notes_for(call.get("family_id")),
+                                     todos=(call.get("aidot") or {}).get("todos"))
     call.update(extraction=result, engine=engine, status="extracted")
     store.log("step", call_id, f"부탁 추출({engine}): {result.get('summary', '')}")
     store.put("call", call_id, call)
 
-    orders = [_make_order(call, req, result.get("scam_signals", [])) for req in result.get("requests", [])]
+    reqs = result.get("requests", [])
+    preps = _prepare_all(call, reqs)  # 상품 후보·LLM 선택은 품목별로 동시에
+    orders = [_make_order(call, req, result.get("scam_signals", []), prep) for req, prep in zip(reqs, preps)]
     call["order_ids"] = [o["id"] for o in orders]
     call["status"] = "processed"
     store.put("call", call_id, call)
@@ -121,11 +130,51 @@ def process_call(call_id: str) -> dict:
     return call
 
 
-def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
+def purchase_history(family_id: str | None, caller: str) -> list[dict]:
+    """그 계정 부모님의 구매 이력 = 데모 기본 이력 + 이 서비스로 실제 결제한 주문.
+
+    한 번 승인해서 산 상품은 다음부터 '늘 사던 상품'이 되어, 자동결제 한도 안이면 묻지 않고 처리된다.
+    데모 기본 이력(catalog.json)은 계정의 첫 부모님에게 붙인다.
+    """
+    fam = store.get("family", family_id) if family_id else None
+    first = fam["parents"][0]["label"] if fam and fam.get("parents") else "엄마"
+    seed = [{**h, "caller": caller, "source": "seed"} for h in catalog.history("엄마")] if caller == first else []
+    paid = [{"product_id": o["product"]["id"], "date": (o.get("paid_at") or o["created_at"])[:10], "caller": caller,
+             "source": "order"}
+            for o in store.all_docs("order")
+            if o.get("family_id") == family_id and o.get("caller") == caller and o["status"] == "paid"
+            and (o.get("product") or {}).get("id")]
+    return sorted(seed + paid, key=lambda h: h["date"])
+
+
+def _prepare(call: dict, req: dict) -> dict:
+    """품목 하나의 구매 이력·상품 후보·LLM 선택. 결제·예산과 무관해 품목끼리 동시에 돌려도 된다."""
+    fid = call.get("family_id")
+    hist = purchase_history(fid, call["caller"])
+    candidates = catalog.search(req.get("item", ""), req.get("detail", ""), hist)
+    ai = None
+    if candidates:
+        ai = choose.choose(req, candidates, family.notes_for(fid),
+                           [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")} for h in hist],
+                           policy.get(fid)["max_per_order"])
+    return {"hist": hist, "candidates": candidates, "ai": ai}
+
+
+def _prepare_all(call: dict, reqs: list[dict]) -> list[dict]:
+    """LLM 상품 선택은 품목마다 2~3초라, 순서대로 하면 품목 수만큼 기다린다 → 동시에 (계정·통화 문맥은 그대로 넘김)."""
+    if len(reqs) <= 1:
+        return [_prepare(call, r) for r in reqs]
+    with ThreadPoolExecutor(max_workers=min(4, len(reqs))) as pool:
+        futures = [pool.submit(contextvars.copy_context().run, _prepare, call, r) for r in reqs]
+        return [f.result() for f in futures]
+
+
+def _make_order(call: dict, req: dict, scam_signals: list[str], prep: dict | None = None) -> dict:
     caller = call["caller"]
     oid = f"o-{uuid.uuid4().hex[:8]}"
-    candidates = catalog.search(req.get("item", ""), req.get("detail", ""), caller)
     fid = call.get("family_id")
+    prep = prep or _prepare(call, req)
+    hist, candidates = prep["hist"], prep["candidates"]
     order = {
         "id": oid, "call_id": call["id"], "family_id": fid, "caller": caller, "request": req, "created_at": now(),
         "timeline": [], "receipt": None, "attempts": [], "ship_to": _ship_to(call),
@@ -139,10 +188,8 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
         return order
 
     pick = candidates[0]
-    ai = choose.choose(req, candidates, family.notes_for(call.get("family_id")),
-                       [{**h, "name": (catalog.product(h["product_id"]) or {}).get("name")} for h in catalog.history(caller)],
-                       policy.get(fid)["max_per_order"])
-    if ai:  # SKT A.X K2가 엄마 상황을 보고 고른 상품
+    ai = prep["ai"]
+    if ai:  # LLM이 엄마 상황(메모·이력·예산)을 보고 고른 상품
         pick = next(c for c in candidates if c["id"] == ai["product_id"])
         pick = {**pick, "reasons": ([f"{ai['engine']} 추천: {ai['reason']}"] if ai["reason"] else []) + pick["reasons"]}
         order["ai_pick"] = ai
@@ -150,7 +197,7 @@ def _make_order(call: dict, req: dict, scam_signals: list[str]) -> dict:
     qty = max(1, int(req.get("quantity") or 1))
     total = pick["price"] * qty
     budget = req.get("budget_krw")
-    bought = any(h["product_id"] == pick["id"] for h in catalog.history(caller))
+    bought = any(h["product_id"] == pick["id"] for h in hist)
     decision, reason = policy.decide(
         caller=caller, product=pick, total=total, previously_bought=bought, scam_signals=scam_signals,
         family_id=fid,
@@ -340,8 +387,11 @@ def record_purchase(oid: str, success: bool, merchant: str = "", paid_amount: in
 
 
 
-def checkout(oid: str, payment_token: str) -> dict:
-    """vooy가 테스트몰에서 1회용 결제 토큰으로 결제한다 (가맹점·PG 역할은 우리 서버의 모의 구현)."""
+def checkout(oid: str, payment_token: str, message_to_mom: str = "") -> dict:
+    """vooy가 테스트몰에서 1회용 결제 토큰으로 결제한다 (가맹점·PG 역할은 우리 서버의 모의 구현).
+
+    message_to_mom: vooy가 자식 말투로 쓴 엄마 문자. 비우면 기본 문구.
+    """
     o = _load(oid)
     m = o.get("mandate") or {}
     if o["status"] != "authorized":
@@ -365,5 +415,6 @@ def checkout(oid: str, payment_token: str) -> dict:
     _tl(o, f"vooy가 {pol['test_merchant']}에서 결제: {won(o['total'])} (주문번호 {order_no}, 토큰 1회 사용)")
     store.put("order", oid, o)
     store.log("push_to_child", oid, f"✅ vooy가 {o['product']['name']} {won(o['total'])} 결제를 마쳤어요 (주문번호 {order_no}).")
-    store.log("sms_to_mom", oid, f"{o['caller']}, {o['product']['name']} 주문했어요. {o['product']['delivery']} 예정이에요.")
+    sms = (message_to_mom or "").strip()[:200] or f"{o['caller']}, {o['product']['name']} 주문했어요. {o['product']['delivery']} 예정이에요."
+    store.log("sms_to_mom", oid, sms)
     return o

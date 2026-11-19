@@ -1,4 +1,4 @@
-"""무엇을 살지 — SKT A.X K2에게 묻는다.
+"""무엇을 살지 — LLM(SKT A.X / OpenAI / Claude)에게 묻는다.
 
 규칙 기반 후보(catalog.search) 중에서 엄마의 말·가족 메모·구매 이력·예산을 보고 하나를 고르고,
 엄마 상황을 반영한 이유, 네이버 검색용 정식 명칭, 쇼핑몰에서 고를 때 쓸 구매 기준을 만든다.
@@ -40,14 +40,15 @@ def choose(req: dict, candidates: list[dict], notes: str, history: list[dict], m
         "max_amount": max_amount,
         "candidates": cands,
     }, ensure_ascii=False)
-    out = llm.chat_json(SYSTEM, prompt)
+    out = llm.chat_json(SYSTEM, prompt, purpose="choose")
     if not out or out.get("product_id") not in {c["id"] for c in candidates}:
         return None
+    engine = llm.engine_of(out)
     crit = out.get("buy_criteria") or []
     return {
         "product_id": out["product_id"],
         "reason": str(out.get("reason") or "").strip()[:80],
         "search_keyword": str(out.get("search_keyword") or req.get("item") or "").strip()[:40],
         "buy_criteria": [str(x).strip()[:40] for x in crit if str(x).strip()][:3],
-        "engine": llm.provider_label(),
+        "engine": engine,
     }

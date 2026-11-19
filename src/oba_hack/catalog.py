@@ -23,6 +23,7 @@ def product(pid: str) -> dict | None:
 
 
 def history(caller: str) -> list[dict]:
+    """데모용 기본 구매 이력 (catalog.json). 계정별 이력은 pipeline.purchase_history가 여기에 실제 결제를 더한다."""
     return [h for h in _data()["purchase_history"] if h["caller"] == caller]
 
 
@@ -32,10 +33,14 @@ def all_keywords() -> list[tuple[str, dict]]:
     return sorted(pairs, key=lambda kp: -len(kp[0]))
 
 
-def search(item: str, detail: str = "", caller: str = "") -> list[dict]:
-    """요청 품목에 맞는 후보를 점수순으로 돌려준다. 각 후보에 선택 근거(reasons)를 붙인다."""
-    text = f"{item} {detail}".strip()
-    bought = {h["product_id"]: h["date"] for h in history(caller)}
+def search(item: str, detail: str = "", bought_history: list[dict] | None = None) -> list[dict]:
+    """요청 품목에 맞는 후보를 점수순으로 돌려준다. 각 후보에 선택 근거(reasons)를 붙인다.
+
+    bought_history: 그 부모님의 구매 이력 [{product_id, date}] — 지난번에 받으신 상품을 우선한다.
+    """
+    bought: dict[str, str] = {}
+    for h in bought_history or []:  # 같은 상품을 여러 번 샀으면 가장 최근 날짜
+        bought[h["product_id"]] = max(bought.get(h["product_id"], ""), h.get("date", ""))
     numbers = set(re.findall(r"\d+", detail or ""))
     out = []
     for p in products():
@@ -48,7 +53,7 @@ def search(item: str, detail: str = "", caller: str = "") -> list[dict]:
         reasons = []
         if p["id"] in bought:
             score += 8
-            reasons.append(f"지난번({bought[p['id']]})에 엄마가 받으신 상품")
+            reasons.append(f"지난번({bought[p['id']]})에 받으신 상품")
         if numbers and any(n in re.findall(r"\d+", p["name"]) for n in numbers):
             score += 6
             reasons.append(f"말씀하신 규격({detail})과 일치")
