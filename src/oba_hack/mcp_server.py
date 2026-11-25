@@ -509,7 +509,8 @@ def checkout_order(order_id: str, payment_token: str, message_to_mom: str = "",
     return {"ok": True, "order": _brief(o), "order_number": rc["order_number"], "paid_amount": rc["amount"],
             "message_to_mom": sent or None,
             "message": f"{o['product']['name']} {won(rc['amount'])} 테스트 결제 완료 (주문번호 {rc['order_number']}, {rc['method']}), "
-                       f"{o['product']['delivery']}. {o['caller']}께 " + (f"‘{sent}’" if sent else "‘주문했어요’") + " 문자를 보냈어요."}
+                       f"{o['product']['delivery']}. {o['caller']}께 " + (f"‘{sent}’" if sent else "‘주문했어요’") + " 문자를 보냈어요. "
+                       "결제 기록까지 끝났으니 report_purchase는 부르지 않아도 돼요."}
 
 
 @server.tool(
@@ -530,9 +531,15 @@ def report_purchase(order_id: str, success: bool = True, merchant: str = "", pai
     fam = _account(ctx)
     if fam is None:
         return _need_account()
-    o = _find_order(order_id, ("authorized",), fam["id"])
+    o = _find_order(order_id, ("authorized",), fam["id"]) or _find_order(order_id, ("paid",), fam["id"])
     if o is None:
         return _missing(order_id, fam["id"])
+    if o["status"] == "paid" and success:  # checkout_order로 이미 결제·기록·문자까지 끝난 주문: 성공 보고는 확인만 해 준다
+        num = (o.get("receipt") or {}).get("order_number", "")
+        return {"ok": True, "already_recorded": True, "order": _brief(o),
+                "message": f"{o['product']['name']}은(는) 이미 결제 완료로 기록돼 있어요"
+                           + (f" (주문번호 {num})" if num else "")
+                           + f". {o['caller']}께 문자도 보냈으니 더 할 일은 없어요."}
     if o["status"] != "authorized" and _why(o):
         return {"ok": False, "order": _brief(o), "message": _why(o)}
     try:

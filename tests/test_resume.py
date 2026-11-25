@@ -121,8 +121,11 @@ def test_finished_order_explains_why_instead_of_not_found(client):
         ("report_purchase", {"order_id": oid, "success": True}),
     )
     assert paid["ok"]
-    for r in (by_name, approve_again, by_id, report):
+    assert "report_purchase는 부르지 않아도" in paid["message"]
+    for r in (by_name, approve_again, by_id):
         assert r["ok"] is False and "이미 결제한 주문" in r["message"] and paid["order_number"] in r["message"]
+    # checkout_order 뒤에 vooy가 성공 보고를 또 보내도 실패가 아니라 '이미 기록됨'으로 답한다 (2026-11-25 실제 vooy에서 본 일)
+    assert report["ok"] is True and report["already_recorded"] and paid["order_number"] in report["message"]
     (nothing,) = mcp(fam["id"], ("approve_order", {"order_id": "냉장고"}))
     assert nothing["ok"] is False and "찾지 못했어요" in nothing["message"]
 
