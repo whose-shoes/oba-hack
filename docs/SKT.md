@@ -3,7 +3,7 @@
 에이닷이 통화 요약에서 찾은 '장보기 할일'을, 자녀가 정한 범위 안에서 실제 구매·결제·부모님 안내까지 끝내는 연동입니다.
 결제·문자는 모두 테스트(모의)입니다.
 
-- 체험: https://dont-call-mama-skt.fly.dev (SKT 전용 서버 — 방문하면 체험 계정이 자동으로 생김)
+- 체험: https://dont-call-mama-skt.onrender.com (SKT 전용 서버 — 방문하면 체험 계정이 자동으로 생김)
 - 소스: https://github.com/whose-shoes/oba-hack — 연동 코드는 `src/oba_hack/telco.py`
 
 ## 1. 5분 체험 순서
@@ -68,7 +68,7 @@ X-Telco-Signature: sha256=<HMAC-SHA256(서명 비밀, "<timestamp>.<본문>")>  
 처리 결과 확인 (데모 서버 전용, 통신사가 보낸 `call_id`로 조회):
 
 ```bash
-curl https://dont-call-mama-skt.fly.dev/v1/telco/calls/skt-20261117-0001 -H "Authorization: Bearer $TELCO_TOKEN"
+curl https://dont-call-mama-skt.onrender.com/v1/telco/calls/skt-20261117-0001 -H "Authorization: Bearer $TELCO_TOKEN"
 # → {"status": "processed", "engine": "OpenAI", "orders": [{"product": "…", "decision": "auto", "status": "paid", …}],
 #    "sms_to_mom": ["엄마, 말씀하신 … 주문했어요. …"], "digest_text": "엄마와 통화에서 부탁 4건을 정리했어요. …"}
 ```

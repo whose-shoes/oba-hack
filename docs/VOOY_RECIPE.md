@@ -3,7 +3,7 @@
 vooy(자녀의 메신저 에이전트)에 이 원격 MCP 서버를 연결하면, 자녀는 vooy 대화로 엄마 정보를 등록하고,
 엄마와 통화가 끝날 때마다 정리본을 먼저 받고, "응 결제해" 한마디로 vooy가 결제를 실행합니다. 결제는 모두 **테스트 결제**입니다.
 
-- 체험: https://dont-call-mama-vooy.fly.dev (vooy 팀 전용 서버) — MCP 주소·레시피·도구 목록·실시간 서버 기록
+- 체험: https://dont-call-mama-vooy.onrender.com (vooy 팀 전용 서버) — MCP 주소·레시피·도구 목록·실시간 서버 기록
 - 소스: https://github.com/whose-shoes/oba-hack — MCP 서버는 `src/oba_hack/mcp_server.py`
 - 전송: Streamable HTTP, stateless, JSON 응답 (MCP Python SDK 2.x)
 

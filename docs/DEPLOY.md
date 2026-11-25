@@ -1,6 +1,29 @@
-# 배포 (Fly.io) — 팀별 앱 2개
+# 배포 — 팀별 서버 2개
 
-SKT용과 vooy용을 **따로 배포**합니다. 앱·볼륨·토큰·데이터가 모두 분리되고, 첫 화면(`/`)이 그 팀의 시작 페이지입니다.
+SKT용과 vooy용을 **따로 배포**합니다. 서버·토큰·데이터가 모두 분리되고, 첫 화면(`/`)이 그 팀의 시작 페이지입니다.
+
+## 지금: Render 무료 웹 서비스 (2026-11-25~)
+
+| 팀 | 서비스 | 주소 |
+| --- | --- | --- |
+| SKT | `dont-call-mama-skt` | https://dont-call-mama-skt.onrender.com |
+| vooy | `dont-call-mama-vooy` | https://dont-call-mama-vooy.onrender.com |
+
+```bash
+# .env에 RENDER_API_KEY, OPENAI_API_KEY / .env.fly.<팀>에 팀별 토큰 (모두 gitignored)
+uv run --no-project python scripts/deploy_render.py skt  [branch]   # 기본 main
+uv run --no-project python scripts/deploy_render.py vooy [branch]
+```
+
+공개 GitHub 저장소의 `Dockerfile`로 싱가포르 리전에 빌드합니다(카드 등록 없음). 무료 플랜의 제약:
+
+- 15분 동안 요청이 없으면 잠들고, 다음 요청에 30~60초 뒤 깨어납니다. vooy 반복 작업(5분)이 돌면 vooy 서버는 깨어 있습니다.
+- 디스크가 없어서 **잠들거나 다시 배포하면 체험 계정이 지워집니다** (vooy 개인 MCP 주소도 다시 가입해야 함).
+- 무료 사용 시간은 계정 전체 월 750시간 — 두 서버를 계속 켜 두면 모자랍니다.
+
+## 이전: Fly.io (체험 크레딧 소진으로 2026-11-25 중단)
+
+카드를 등록하면 아래 설정으로 되살릴 수 있습니다(SQLite 볼륨이라 데이터가 남음).
 
 | 팀 | 설정 파일 | 앱 | 주소 |
 | --- | --- | --- | --- |
