@@ -12,8 +12,8 @@ OBA.RUN 2nd 해커톤(SKT Agentic Pay 트랙) 출품작을 해커톤 이후 완�
 
 | 누구를 위한 | 주소 | 무엇을 볼 수 있나 |
 | --- | --- | --- |
-| **SKT** (에이닷 연동) | https://dont-call-mama-skt.onrender.com | 에이닷 통화 종료 → 웹훅 → 부탁 추출·상품 선택·위임 판단·테스트 결제·엄마 문자까지 단계별로. 연동 명세와 curl 예시 |
-| **vooy 팀** (MCP) | https://dont-call-mama-vooy.onrender.com | vooy에 넣을 MCP 주소·레시피·도구 목록, 체험 계정, vooy가 부른 도구가 서버에서 처리되는 실시간 기록 |
+| **SKT** (에이닷 연동) | https://dont-call-mama-skt.fly.dev | 에이닷 통화 종료 → 웹훅 → 부탁 추출·상품 선택·위임 판단·테스트 결제·엄마 문자까지 단계별로. 연동 명세와 curl 예시 |
+| **vooy 팀** (MCP) | https://dont-call-mama-vooy.fly.dev | vooy에 넣을 MCP 주소·레시피·도구 목록, 체험 계정, vooy가 부른 도구가 서버에서 처리되는 실시간 기록 |
 
 두 서버 모두 자녀 대시보드는 `/dashboard`, 운영자용 LLM 사용량은 `/admin`입니다.
 방문할 때마다 **체험 계정**(데모 번호·엄마 메모·위임 범위가 채워진 샌드박스)이 만들어져 다른 사람의 체험과 섞이지 않습니다.
@@ -94,7 +94,7 @@ uv run oba-hack                   # http://localhost:8000 — / (대시보드), 
 uv run pytest                     # 테스트 79개
 ```
 
-키가 없어도 **규칙 기반 추출**로 끝까지 동작합니다. 지금 쓰는 분석 엔진은 화면 상단에 표시됩니다. 배포는 [docs/DEPLOY.md](docs/DEPLOY.md) (Render 무료 웹 서비스, 팀별 서버 2개).
+키가 없어도 **규칙 기반 추출**로 끝까지 동작합니다. 지금 쓰는 분석 엔진은 화면 상단에 표시됩니다. 배포는 [docs/DEPLOY.md](docs/DEPLOY.md) (Fly.io, 팀별 앱 2개 · 예비 Render).
 
 ### 환경변수
 
@@ -163,7 +163,7 @@ LLM을 부를 때마다(실패·폴백 포함) 엔진·모델·용도(부탁 찾
 - **vooy** — 원격 **MCP (Streamable HTTP)** 서버, 레시피, 5분 반복 작업, 웹훅 Push
 - **iOS 단축어** — 에이닷 공유·엄마 문자 자동화 → `/v1/calls`
 - **테스트 결제 게이트웨이·테스트몰(모의)** — 결제수단 폴백, 1회용 결제 토큰, 환불
-- 런타임: **Python 3.11**, **uv**, **FastAPI**, **Uvicorn**, **httpx**, **MCP Python SDK 2.x**, **SQLite**, **pytest**, **Render**
+- 런타임: **Python 3.11**, **uv**, **FastAPI**, **Uvicorn**, **httpx**, **MCP Python SDK 2.x**, **SQLite**, **pytest**, **Fly.io**
 - 프런트: 정적 HTML/CSS/JS (Montage/Wanted 디자인 토큰, 모바일 우선, 다크 모드)
 
 ## 구조
