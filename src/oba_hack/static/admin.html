@@ -78,7 +78,7 @@ function render(s) {
   $("#models").innerHTML = table(s.by_model, "엔진/모델");
   $("#accounts").innerHTML = table(s.by_account, "계정", r => `${esc(r.origin)} · ${esc(r.child_name || "")} <span class="sub">${esc((r.family_id || "").slice(0, 10))}</span>`);
   $("#recent").innerHTML = s.recent.length ? `<table class="spec"><tr><th>시각</th><th>엔진/모델</th><th>용도</th><th>결과</th><th>입력</th><th>캐시</th><th>출력</th><th>비용</th><th>지연</th><th>계정</th><th>통화</th></tr>
-    ${s.recent.map(r => `<tr><td>${esc(new Date(r.ts * 1000).toLocaleString("ko-KR", {hour12: false}))}</td><td>${esc(r.provider)}/${esc(r.model)}</td>
+    ${s.recent.map(r => `<tr><td>${esc(new Date(r.ts * 1000).toLocaleString("ko-KR", {hour12: false, timeZone: "Asia/Seoul"}))}</td><td>${esc(r.provider)}/${esc(r.model)}</td>
       <td>${esc(PURPOSE[r.purpose] ?? r.purpose)}</td><td>${r.ok ? `<span class="badge ok">성공</span>` : `<span class="badge block" title="${esc(r.error)}">실패</span> <span class="sub">${esc((r.error || "").slice(0, 60))}</span>`}</td>
       <td>${n(r.prompt_tokens)}</td><td>${n(r.cached_tokens)}</td><td>${n(r.completion_tokens)}</td><td>${usd(r.cost_usd)}</td><td>${n(r.latency_ms)}ms</td>
       <td><span class="sub">${esc((r.family_id || "").slice(0, 10))}</span></td><td><span class="sub">${esc(r.ref || "")}</span></td></tr>`).join("")}</table>` : `<div class="empty">기록이 없어요</div>`;

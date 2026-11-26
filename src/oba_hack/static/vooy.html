@@ -227,7 +227,7 @@ function renderLive() {
   $("#noacct").hidden = true; $("#liveon").hidden = false;
   const pl = st.vooy.poll || {};
   if (pl.last_polled_at) {
-    const ago = Math.max(0, Math.round((Date.now() - new Date(pl.last_polled_at).getTime()) / 60000));
+    const ago = Math.max(0, Math.round((Date.now() - kstDate(pl.last_polled_at).getTime()) / 60000));
     $("#pollstat").innerHTML = `${ago <= 6 ? "🟢" : "🟠"} vooy 마지막 확인 <b>${esc(pl.last_polled_at.slice(11, 16))}</b> (${ago}분 전) · 총 ${pl.polls}회 · 가져간 정리본 ${pl.taken}건 · 대기 ${st.vooy_pending}건`;
   } else {
     $("#pollstat").innerHTML = `⚪ 아직 vooy가 이 계정을 확인한 적이 없어요. 개인 주소를 연결하고 “5분마다 엄마 부탁 확인해줘”라고 말해 보세요. · 대기 정리본 ${st.vooy_pending}건`;

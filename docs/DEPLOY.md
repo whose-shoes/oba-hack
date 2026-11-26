@@ -1,6 +1,10 @@
-# 배포 (Fly.io) — 팀별 앱 2개
+# 배포 — 팀별 서버 2개
 
-SKT용과 vooy용을 **따로 배포**합니다. 앱·볼륨·토큰·데이터가 모두 분리되고, 첫 화면(`/`)이 그 팀의 시작 페이지입니다.
+SKT용과 vooy용을 **따로 배포**합니다. 서버·토큰·데이터가 모두 분리되고, 첫 화면(`/`)이 그 팀의 시작 페이지입니다.
+
+## Fly.io (지금 쓰는 서버)
+
+2026-11-25 체험 크레딧이 끝나 잠시 멈췄다가 카드 등록 후 되살림. 주소·토큰·볼륨 데이터 그대로.
 
 | 팀 | 설정 파일 | 앱 | 주소 |
 | --- | --- | --- | --- |
@@ -47,7 +51,30 @@ curl https://dont-call-mama-skt.fly.dev/health    # {"ok": true, "llm": "OpenAI"
   `fly ssh console --app $APP -C /app/.venv/bin/oba-usage`, 또는 `fly logs --app $APP | grep llm-usage`
 - 하루 비용 한도는 설정 파일의 `OBA_LLM_DAILY_USD_LIMIT` (앱마다 $5). 넘으면 그날은 규칙 기반으로 처리
 - 로그: `fly logs --app $APP`
+- 처리 도중 서버가 꺼지면(배포·재시작·머신 정지) 다시 켜질 때 멈춘 통화를 이어서 처리합니다(로그 `[resume]`).
+  이미 만든 주문·결제는 다시 하지 않고, 2시간 넘게 멈춰 있던 통화는 늦게 주문하지 않고 자녀에게 '다시 보내 주세요'로 알립니다
 - 비밀값 확인: `fly ssh console --app $APP -C 'printenv OBA_MCP_TOKEN OBA_TELCO_TOKEN'`
 - 데이터 초기화(그 앱의 체험 계정 모두 삭제): `fly ssh console --app $APP -C 'rm -rf /data/oba.db /data/calls'` 후 `fly machine restart --app $APP`
 - 비용을 멈추려면: `fly scale count 0 --app $APP` (다시 켜기: `fly scale count 1 --app $APP`)
 - 체험 기능을 끄려면 설정 파일의 `OBA_DEMO_MODE`를 `"0"`으로 바꾸고 다시 배포
+
+## 예비: Render 무료 웹 서비스
+
+| 팀 | 서비스 | 주소 |
+| --- | --- | --- |
+| SKT | `dont-call-mama-skt` | https://dont-call-mama-skt.onrender.com |
+| vooy | `dont-call-mama-vooy` | https://dont-call-mama-vooy.onrender.com |
+
+```bash
+# .env에 RENDER_API_KEY, OPENAI_API_KEY / .env.fly.<팀>에 팀별 토큰 (모두 gitignored)
+uv run --no-project python scripts/deploy_render.py skt  [branch]   # 기본 main
+uv run --no-project python scripts/deploy_render.py vooy [branch]
+```
+
+공개 GitHub 저장소의 `Dockerfile`로 싱가포르 리전에 빌드합니다(카드 등록 없음). 무료 플랜의 제약:
+
+- 15분 동안 요청이 없으면 잠들고, 다음 요청에 30~60초 뒤 깨어납니다. vooy 반복 작업(5분)이 돌면 vooy 서버는 깨어 있습니다.
+- 디스크가 없어서 **잠들거나 다시 배포하면 체험 계정이 지워집니다** (vooy 개인 MCP 주소도 다시 가입해야 함).
+- 무료 사용 시간은 계정 전체 월 750시간 — 두 서버를 계속 켜 두면 모자랍니다.
+
+Fly가 멈추면 쓰는 예비 서버입니다. 같은 토큰을 쓰므로 vooy·SKT에는 도메인만 바꿔 알려 주면 됩니다.
