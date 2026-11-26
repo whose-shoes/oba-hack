@@ -14,7 +14,7 @@ from pathlib import Path
 
 import httpx
 
-from . import account, catalog, choose, extract, family, notify, payment, policy, store
+from . import account, catalog, choose, extract, family, notify, payment, policy, store, tasks
 from .config import data_dir, josa
 
 TEXT_EXT = {".txt", ".md", ".text", ".csv", ".json"}
@@ -133,8 +133,11 @@ def process_call(call_id: str) -> dict:
     call["status"] = "processed"
     store.put("call", call_id, call)
 
-    for t in result.get("other_tasks", []):
-        store.log("push_to_child", call_id, f"구매 외 부탁도 있어요: “{t}”")
+    todos = tasks.make_for_call(call, result.get("other_tasks", []))
+    call["task_ids"] = [t["id"] for t in todos]
+    store.put("call", call_id, call)
+    for t in todos:
+        store.log("push_to_child", call_id, f"구매 외 부탁도 있어요: {tasks.line(t)}")
     if result.get("scam_signals") and not orders:
         store.log("push_to_child", call_id, "⚠️ 사칭 의심 표현이 있는 통화예요: " + ", ".join(result["scam_signals"]))
 

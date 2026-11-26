@@ -66,10 +66,10 @@ vooy 계정의 커넥터 목록(`api.vooy.com/v1/connectors`)에서 확인한 �
 
 | 단계 | 내용 | 지금 |
 |---|---|---|
-| 추출 | 통화에서 구매 외 부탁을 `{kind, when, where_from, where_to, who, detail}`로 구조화 (`extract.py`의 `other_tasks`는 지금 문장 하나뿐) | 문장만 |
-| 정리본 | `get_new_parent_requests`에 "🚕 목요일 9:30 정형외과 택시 — Swing Taxi로 부를까요?"처럼 실행 제안을 넣는다 | 📌 문장만 |
-| 승인 | `approve_task(task_id)` → 위 handoff를 돌려준다 (택시는 출발지로 엄마 주소를 자동으로 채운다) | 없음 |
-| 보고 | `report_task(task_id, success, provider, amount, reference, message_to_mom)` → 상태 저장, 엄마께 문자 ("엄마, 목요일 9시 반에 택시 와요~") | 없음 |
+| 추출 | 부탁 문장마다 할 일(task)을 만들고 종류(taxi·stay·food·reservation·other)를 붙인다. 날짜·장소는 문장에 남기고 Vooy가 통화 날짜 기준으로 해석 (`tasks.py`) | ✅ |
+| 정리본 | "🚕 … — Swing Taxi로 부를까요? (task_id …)"처럼 실행 제안을 넣는다 | ✅ |
+| 승인 | `approve_task(task_id)` → 위 handoff를 돌려준다 (택시 출발지·배달지·검색 기준에 엄마 주소를 채운다) | ✅ |
+| 보고 | `report_task(task_id, success, provider, amount, reference, details, message_to_mom)` → 상태 저장, 엄마께 문자 | ✅ |
 | 구매 | 이미 있는 `approve_order` handoff에 `connector`(market-kurly/danawa 등)를 추가한다 | 쇼핑몰 링크만 |
 | 기억 규칙 | 처음 연결할 때 "엄마 관련 부탁·통화·주문은 don't call Mama에 작업을 맡겨 처리"를 Vooy 기억에 남긴다 | 없음 |
 

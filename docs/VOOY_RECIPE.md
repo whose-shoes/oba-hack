@@ -17,7 +17,7 @@ vooy(자녀의 메신저 에이전트)에 이 원격 MCP 서버를 연결하면,
 | 말 | vooy가 부르는 도구 | 보이는 것 |
 | --- | --- | --- |
 | "엄마는 서울 마포구 월드컵로 1에 사셔. 무릎이 안 좋으셔" | `setup_parent` ×2 | 배송지·메모 저장 |
-| "5분마다 엄마 부탁 확인해줘" | `setup_auto_check` → vooy 반복 작업 | 대시보드에 vooy 폴링 기록 |
+| "15분마다 엄마 부탁 확인해줘" | `setup_auto_check` → vooy 반복 작업 | 대시보드에 vooy 폴링 기록 |
 | "데모 통화 하나 만들어줘" | `demo_parent_call` → `get_new_parent_requests` | 정리본: 🛒 휴지·계란, 🟡 전기요, 📌 병원 예약 |
 | (🛒 자동결제 범위) | `approve_order` → `checkout_order` | 묻지 않고 1회용 토큰으로 테스트몰 결제, 엄마 문자 |
 | "응 전기요도 사줘" | `approve_order` → `checkout_order(message_to_mom)` | 자식 말투 문자가 엄마께 감 |
@@ -44,15 +44,20 @@ vooy는 MCP 요청에 사용자 정보를 보내지 않으므로, **사용자마
 | `get_family_status` | 처음 연결, "연동 됐어?" | 읽기 전용 |
 | `setup_parent` | "엄마 번호는 …, 내 번호는 …", "엄마 무릎이 안 좋으셔" (말로 등록·수정) | 변경 |
 | `list_parent_requests` | "엄마 부탁 뭐 있어?" | 읽기 전용 |
-| `get_new_parent_requests` | 5분 반복 작업 · "통화 저장됐어" — 새 정리본을 한 번씩만 가져옴 | 변경(전달 표시) |
-| `setup_auto_check` | "5분마다 엄마 부탁 확인해줘" — 반복 작업 문구를 돌려줌 | 변경 |
+| `get_new_parent_requests` | 15분 반복 작업 · "통화 저장됐어" — 새 정리본을 한 번씩만 가져옴 | 변경(전달 표시) |
+| `setup_auto_check` | "15분마다 엄마 부탁 확인해줘" — 반복 작업 문구를 돌려줌 | 변경 |
 | `approve_order` | "응 결제해" — 구매 승인(위임 증서 + 1회용 결제 토큰) | **결제 — 사용자 확인 필수 (🛒 자동결제 범위는 예외)** |
 | `checkout_order` | 승인 직후 — 토큰으로 테스트몰 결제, `message_to_mom` | **결제** |
 | `report_purchase` | 외부 쇼핑몰 모드에서 vooy가 산 결과 보고 | 변경 |
-| `reject_order` | "그건 빼줘" | 변경 |
+| `approve_task` | 택시·숙소·병원 예약 등 구매 외 부탁에 "응 해줘" — 맡길 Vooy 서비스와 범위(handoff)를 돌려줌 | 변경 |
+| `report_task` | Vooy 서비스로 처리한 결과 보고, `message_to_mom` | 변경 |
+| `reject_order` | "그건 빼줘", 구매 외 부탁은 "그건 내가 할게" | 변경 |
 | `cancel_order` | "그거 취소해줘" — 테스트 환불 | **환불 — 사용자 확인 필수** |
 | `update_delegation` | "자동결제 한도 5만원으로" | 변경 |
-| `demo_parent_call` | 체험 서버 전용 — "데모 통화 만들어줘" | 변경 |
+| `demo_parent_call` | 체험 서버 전용 — "데모 통화 만들어줘", "병원 택시 상황", "부산 숙소 상황" | 변경 |
+
+> vooy의 대화하는 Vooy는 사용자 지정 MCP 도구를 직접 부르지 못하고, **작업을 맡기면** 맡은 쪽이 이 도구들을 부릅니다(2026-11-25 확인).
+> "엄마가 뭐 부탁한 거 있어?"처럼 평소 말투로 물으면 Vooy가 알아서 작업을 맡깁니다. 자세한 내용은 [VOOY_HANDOFF.md](VOOY_HANDOFF.md).
 
 차단된 주문(상품권, 사칭 의심)은 vooy가 `approve_order`를 불러도 서버가 거절하고, 이유와 함께 "엄마께 직접 확인해 보세요"라고 답합니다.
 
@@ -90,7 +95,7 @@ vooy가 결제하는 계정에서 `approve_order`는 결제하지 않고 **구�
 
 | | 웹훅 (우리 → vooy) | 반복 작업 (vooy → 우리) |
 | --- | --- | --- |
-| 설정 | 대시보드 'vooy 전달'에 주소·토큰·사용자 ID·서명 비밀 (계정별) | vooy 반복 작업 5분 `get_new_parent_requests`, 또는 HTTP 크론 `GET /v1/vooy/digests` |
+| 설정 | 대시보드 'vooy 전달'에 주소·토큰·사용자 ID·서명 비밀 (계정별) | vooy 반복 작업 15분 `get_new_parent_requests`, 또는 HTTP 크론 `GET /v1/vooy/digests` |
 | 시점 | 통화 처리 직후 즉시 | 주기마다 |
 | 실패 시 | 15·30·60·120초 백오프 재시도 (최대 5회) | 다음 주기에 가져감 |
 

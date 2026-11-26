@@ -53,7 +53,7 @@ def test_tools_are_listed_with_annotations(client):
     tools = {t.name: t for t in asyncio.run(run())}
     assert set(tools) == {"get_family_status", "setup_parent", "list_parent_requests", "get_new_parent_requests",
                           "approve_order", "checkout_order", "report_purchase", "reject_order", "cancel_order", "update_delegation",
-                          "setup_auto_check", "demo_parent_call"}
+                          "setup_auto_check", "demo_parent_call", "approve_task", "report_task"}
     assert tools["approve_order"].annotations.destructive_hint is True
     assert tools["list_parent_requests"].annotations.read_only_hint is True
     assert "결제해" in tools["approve_order"].description
@@ -183,11 +183,11 @@ def test_vooy_agent_executes_payment(client):
 
 
 def test_auto_check_is_requested_until_vooy_polls(client):
-    """폴링이 없으면 응답이 vooy에게 5분 반복 작업을 만들라고 안내하고, 폴링이 오면 안내가 사라진다."""
+    """폴링이 없으면 응답이 vooy에게 15분 반복 작업을 만들라고 안내하고, 폴링이 오면 안내가 사라진다."""
     (created,) = mcp(("setup_parent", {"parent_phone": MOM, "child_phone": CHILD}), fid="")
     assert created["created"]
     status_before, setup = mcp(("get_family_status", {}), ("setup_auto_check", {}))
-    assert status_before["auto_check_needed"] and status_before["auto_check"]["interval_minutes"] == 5
+    assert status_before["auto_check_needed"] and status_before["auto_check"]["interval_minutes"] == 15
     assert setup["already_on"] is False and "get_new_parent_requests" in setup["auto_check"]["instruction"]
     poll, after = mcp(("get_new_parent_requests", {}), ("get_family_status", {}))
     assert after["auto_check_on"] is True and "auto_check_needed" not in after

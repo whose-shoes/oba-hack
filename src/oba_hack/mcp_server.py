@@ -18,7 +18,7 @@ from typing import Any
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import ToolAnnotations
 
-from . import account, catalog, family, notify, pipeline, policy, ratelimit, samples, store, telco
+from . import account, catalog, family, notify, pipeline, policy, ratelimit, samples, store, tasks, telco
 from .config import demo_mode, josa
 
 INSTRUCTIONS = """don't call Mama: 엄마(부모님)와 자녀가 통화를 마치면 엄마의 부탁을 정리해 주문까지 돕는 서비스입니다.
@@ -29,8 +29,10 @@ INSTRUCTIONS = """don't call Mama: 엄마(부모님)와 자녀가 통화를 마�
 - 결제(approve_order)와 취소(cancel_order)는 반드시 상품·수량·금액을 보여 주고 사용자가 분명히 동의한 뒤에만 부르세요.
 - 🚫(결제 안 함) 항목은 결제를 제안하지 말고 엄마께 직접 확인하라고 안내하세요.
 - 결과를 전할 때 엄마께 보낸 문자 내용도 함께 알려 주세요. 결제는 모두 테스트 결제입니다.
+- 택시·숙소·병원 예약·배달처럼 구매가 아닌 부탁(task_id)은 사용자가 동의하면 approve_task를 부르고, 돌려받은 handoff.connector
+  서비스(Swing Taxi, NOL 숙소, 카카오맵, 요기요 …)에 작업을 맡겨 처리한 뒤 report_task로 결과를 알려 주세요.
 - [자동 확인] 등록이 끝났거나 응답에 auto_check_needed=true가 있으면, vooy의 반복 작업(일정) 기능으로
-  5분마다 get_new_parent_requests를 실행하는 반복 작업을 만드세요(setup_auto_check가 문구를 줍니다).
+  15분마다 get_new_parent_requests를 실행하는 반복 작업을 만드세요(setup_auto_check가 문구를 줍니다).
   반복 실행 때는 has_new가 true일 때만 사용자에게 말하고, false면 조용히 있으세요."""
 
 DEMO_INSTRUCTIONS = """
@@ -102,24 +104,24 @@ def _policy_brief(fid: str) -> dict:
 
 
 AUTO_CHECK = {
-    "interval_minutes": 5,
+    "interval_minutes": 15,
     "tool": "get_new_parent_requests",
-    "instruction": ("5분마다 get_new_parent_requests를 실행해. has_new가 true면 message를 그대로 나에게 보내고, "
+    "instruction": ("15분마다 get_new_parent_requests를 실행해. has_new가 true면 message를 그대로 나에게 보내고, "
                     "확인이 필요한 주문은 결제할지 물어봐. has_new가 false면 아무 말도 하지 마."),
 }
 
 
 def _auto_check_on(fid: str) -> bool:
-    """vooy가 최근 10분 안에 이 계정을 폴링했으면 자동 확인이 켜진 것으로 본다."""
+    """vooy가 최근 20분 안에 이 계정을 폴링했으면 자동 확인이 켜진 것으로 본다 (vooy 반복 작업 최소 주기 15분)."""
     last = notify.poll_status(fid).get("last_polled_at")
-    return bool(last) and (datetime.now() - datetime.fromisoformat(last)).total_seconds() < 600
+    return bool(last) and (datetime.now() - datetime.fromisoformat(last)).total_seconds() < 1200
 
 
 def _with_auto_check(out: dict[str, Any], fid: str) -> dict[str, Any]:
     if not _auto_check_on(fid):
         out["auto_check_needed"] = True
-        out["next_action"] = ("vooy 반복 작업(일정) 기능으로 5분마다 get_new_parent_requests를 실행하는 반복 작업을 만들어 주세요. "
-                              "그래야 엄마와 통화가 끝나면 5분 안에 자녀에게 정리본이 갑니다.")
+        out["next_action"] = ("vooy 반복 작업(일정) 기능으로 15분마다 get_new_parent_requests를 실행하는 반복 작업을 만들어 주세요. "
+                              "그래야 엄마와 통화가 끝나면 15분 안에 자녀에게 정리본이 갑니다.")
         out["auto_check"] = AUTO_CHECK
     return out
 
@@ -237,7 +239,7 @@ def setup_parent(
     title="엄마 부탁 목록",
     description=(
         "엄마가 통화에서 부탁한 일을 보여 줍니다: 확인이 필요한 주문(order_id 포함, 엄마가 한 말 인용), 이미 주문한 것, "
-        "결제하지 않은 것(차단), 구매 외 부탁. 예: '엄마 부탁 뭐 있어?', '엄마랑 통화한 거 정리해줘', '통화 내용 뭐였어?', '결제할 거 있어?', "
+        "결제하지 않은 것(차단), 구매 외 부탁(택시·숙소·병원 예약 등, task_id 포함). 예: '엄마 부탁 뭐 있어?', '엄마랑 통화한 거 정리해줘', '통화 내용 뭐였어?', '결제할 거 있어?', "
         "'엄마 주문 어떻게 됐어?'. include_done=true면 지난 주문·취소 내역까지 보여 줍니다."
     ),
     annotations=READ,
@@ -254,9 +256,12 @@ def list_parent_requests(include_done: bool = False, ctx: Context | None = None)
     paid = [o for o in recent if o["status"] == "paid"]
     blocked = [o for o in recent if o["status"] == "blocked"]
     done = [o for o in recent if o["status"] in ("cancelled", "rejected")] if include_done else []
-    tasks = [t for c in store.all_docs("call") if c.get("family_id") == fam["id"]
-             and (include_done or c["received_at"].startswith(today))
-             for t in (c.get("extraction") or {}).get("other_tasks", [])]
+    calls = [c for c in store.all_docs("call") if c.get("family_id") == fam["id"]
+             and (include_done or c["received_at"].startswith(today))]
+    todos = [t for t in tasks.of_family(fam["id"]) if t["status"] in ("proposed", "approved")
+             or include_done or t["created_at"].startswith(today)]
+    # 할 일(task)이 생기기 전 통화는 문장만 있다
+    old = [x for c in calls if "task_ids" not in c for x in (c.get("extraction") or {}).get("other_tasks", [])]
     lines = []
     for o in ask:
         if o["status"] == "not_found":
@@ -268,7 +273,7 @@ def list_parent_requests(include_done: bool = False, ctx: Context | None = None)
               for o in ready]
     lines += [f"✅ 주문함: {o['product']['name']} {won(o['total'])}" for o in paid]
     lines += [f"🚫 결제 안 함: {o['product']['name']} — {o['decision_reason']}" for o in blocked]
-    lines += [f"📌 구매 외 부탁: {t}" for t in tasks]
+    lines += [tasks.line(t) for t in todos] + [f"📌 구매 외 부탁: {t}" for t in old]
     return {
         "message": "\n".join(lines) if lines else "지금은 엄마 부탁이 없어요.",
         "needs_approval": [_brief(o) for o in ask],
@@ -276,16 +281,17 @@ def list_parent_requests(include_done: bool = False, ctx: Context | None = None)
         "ordered": [_brief(o) for o in paid],
         "blocked": [_brief(o) for o in blocked],
         "closed": [_brief(o) for o in done],
-        "other_tasks": tasks,
+        "tasks": [tasks.brief(t) for t in todos],
+        "other_tasks": [t["text"] for t in todos] + old,
     }
 
 
 @server.tool(
     name="setup_auto_check",
-    title="5분 자동 확인 켜기",
+    title="15분 자동 확인 켜기",
     description=(
-        "통화가 끝나면 자동으로 알림을 받도록 5분 자동 확인을 켭니다. 예: '5분마다 엄마 부탁 확인해줘', '자동 확인 켜줘', "
-        "'통화 끝나면 바로 알려줘'. 이 도구가 돌려주는 instruction 문구로 vooy의 반복 작업(일정)을 5분 주기로 만들어 "
+        "통화가 끝나면 자동으로 알림을 받도록 15분 자동 확인을 켭니다. 예: '엄마 부탁 자동으로 확인해줘', '자동 확인 켜줘', "
+        "'통화 끝나면 바로 알려줘'. 이 도구가 돌려주는 instruction 문구로 vooy의 반복 작업(일정)을 15분 주기로 만들어 "
         "get_new_parent_requests를 실행하세요. 이미 켜져 있으면 그렇다고 알려 줍니다."
     ),
     annotations=WRITE,
@@ -295,23 +301,23 @@ def setup_auto_check(ctx: Context) -> dict[str, Any]:
     if fam is None:
         return _need_account()
     st = notify.poll_status(fam["id"])
-    store.log("push_to_child", "auto-check", "⏱️ vooy에 5분 자동 확인(반복 작업) 설정을 요청했어요.")
+    store.log("push_to_child", "auto-check", "⏱️ vooy에 15분 자동 확인(반복 작업) 설정을 요청했어요.")
     if _auto_check_on(fam["id"]):
         return {"ok": True, "already_on": True, "last_polled_at": st.get("last_polled_at"),
-                "message": "이미 5분마다 확인하고 있어요."}
+                "message": "이미 15분마다 확인하고 있어요."}
     return {"ok": True, "already_on": False, "auto_check": AUTO_CHECK,
-            "message": "vooy 반복 작업으로 5분마다 get_new_parent_requests를 실행하도록 만들어 주세요. "
+            "message": "vooy 반복 작업으로 15분마다 get_new_parent_requests를 실행하도록 만들어 주세요. "
                        "첫 실행이 들어오면 자동 확인이 켜진 것으로 표시돼요."}
 
 
-POLL_INTERVAL_SEC = 300
+POLL_INTERVAL_SEC = 900
 
 
 @server.tool(
     name="get_new_parent_requests",
-    title="새 통화 정리본 가져오기 (5분 폴링)",
+    title="새 통화 정리본 가져오기 (15분 폴링)",
     description=(
-        "vooy가 5분마다 폴링하는 도구입니다. 엄마와의 통화가 끝난 뒤 새로 정리된 통화 데이터(정리본)가 있으면 넘겨주고, "
+        "vooy가 반복 작업으로 15분마다 폴링하는 도구입니다. 엄마와의 통화가 끝난 뒤 새로 정리된 통화 데이터(정리본)가 있으면 넘겨주고, "
         "넘겨준 건 전달됨으로 표시해 다음 폴링에는 다시 나오지 않습니다. "
         "has_new가 true면 message를 사용자에게 그대로 보내고 확인이 필요한 주문은 결제할지 물어보세요. "
         "has_new가 false면 사용자에게 아무것도 보내지 마세요. 사용자가 '통화 저장됐어', '엄마랑 통화 끝났어', "
@@ -556,13 +562,18 @@ def report_purchase(order_id: str, success: bool = True, merchant: str = "", pai
 @server.tool(
     name="reject_order",
     title="이번엔 안 사기",
-    description="주문하지 않기로 합니다. 예: '그건 사지 마', '전기요는 빼줘', '다음에 할게', '그건 내가 직접 살게'.",
+    description=("주문하지 않기로 합니다. 예: '그건 사지 마', '전기요는 빼줘', '다음에 할게', '그건 내가 직접 살게'. "
+                 "구매 외 부탁(task_id)을 '그건 내가 할게', '병원 예약은 됐어'처럼 안 하기로 할 때도 씁니다."),
     annotations=WRITE,
 )
 def reject_order(order_id: str, ctx: Context | None = None) -> dict[str, Any]:
     fam = _account(ctx)
     if fam is None:
         return _need_account()
+    if _find_order(order_id, tuple(STATUS_WHY), fam["id"]) is None:  # 구매가 아닌 부탁이면 '안 하기'로
+        t = tasks.find(order_id, fam["id"], ("proposed", "approved"))
+        if t is not None:
+            return tasks.skip(t)
     r = _result(pipeline.reject, order_id, ("awaiting_approval", "not_found", "payment_failed", "blocked"), fam["id"])
     if r["ok"]:
         r["message"] = f"‘{r['order']['item']}’은(는) 주문하지 않을게요."
@@ -587,6 +598,61 @@ def cancel_order(order_id: str, ctx: Context | None = None) -> dict[str, Any]:
         o = store.get("order", r["order"]["order_id"])
         r["message"] = f"{o['product']['name']} 주문을 취소하고 {won(o['refund']['amount'])} 환불했어요. {o['caller']}께 안내 문자를 보냈어요."
     return r
+
+
+@server.tool(
+    name="approve_task",
+    title="구매 외 부탁 승인 (택시·숙소·예약)",
+    description=(
+        "엄마가 통화에서 한 구매 외 부탁(택시 호출, 숙소 예약, 병원 예약, 음식 배달 등)을 사용자가 '응 해줘', '택시 불러줘', "
+        "'병원 알아봐줘'처럼 동의했을 때 부르세요. task_id(또는 '병원 예약'처럼 부탁 이름)를 넣으면 승인서(handoff)를 돌려줍니다: "
+        "맡길 Vooy 서비스(connector: swing_taxi·nol·kakaomap·yogiyo 등), 할 일, 엄마 주소, 최대 금액. "
+        "그 서비스에 작업을 맡겨 처리하고, 끝나면 report_task로 결과를 알려 주세요."
+    ),
+    annotations=WRITE,
+)
+def approve_task(task_id: str, ctx: Context | None = None) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    t = tasks.find(task_id, fam["id"], ("proposed", "approved", "failed"))
+    if t is None:
+        t = tasks.find(task_id, fam["id"])
+        if t is not None:
+            return {"ok": False, "task": tasks.brief(t), "message": tasks.why_not(t)}
+        return {"ok": False, "message": f"‘{task_id}’에 해당하는 부탁을 찾지 못했어요. list_parent_requests로 확인해 주세요."}
+    return tasks.approve(t)
+
+
+@server.tool(
+    name="report_task",
+    title="구매 외 부탁 결과 알리기",
+    description=(
+        "approve_task로 맡은 부탁을 Vooy 서비스(택시·숙소·지도·배달 등)로 처리한 뒤 결과를 알려 줍니다. "
+        "success(성공 여부), provider(쓴 서비스, 예: Swing Taxi), amount(쓴 금액, 원, 없으면 0), reference(예약·배차 번호 등), "
+        "details(사용자·엄마가 알아야 할 요점: 시각, 장소, 차량, 병원 이름·전화번호 등)를 넣으세요. "
+        "성공이면 message_to_mom에 엄마께 보낼 문자를 자식 말투로 1~2문장 적어 주세요(예: '엄마, 목요일 9시 반에 택시 와요~'). "
+        "비우면 기본 문구로 보냅니다. 알아보기만 하고 아직 예약하지 않았으면 success=true, details에 찾은 내용을 적으세요."
+    ),
+    annotations=WRITE,
+)
+def report_task(task_id: str, success: bool = True, provider: str = "", amount: int = 0, reference: str = "",
+                details: str = "", message_to_mom: str = "", ctx: Context | None = None) -> dict[str, Any]:
+    fam = _account(ctx)
+    if fam is None:
+        return _need_account()
+    t = tasks.find(task_id, fam["id"], ("approved",))
+    if t is None:
+        t = tasks.find(task_id, fam["id"])
+        if t is None:
+            return {"ok": False, "message": f"‘{task_id}’에 해당하는 부탁을 찾지 못했어요."}
+        if t["status"] == "proposed":
+            return {"ok": False, "task": tasks.brief(t), "message": "먼저 approve_task로 승인을 받아야 해요."}
+        if t["status"] == "done" and success:
+            return {"ok": True, "already_recorded": True, "task": tasks.brief(t), "message": tasks.why_not(t) + " 더 할 일은 없어요."}
+        if t["status"] != "failed":
+            return {"ok": False, "task": tasks.brief(t), "message": tasks.why_not(t)}
+    return tasks.report(t, success, provider, amount, reference, details, message_to_mom)
 
 
 @server.tool(
@@ -636,7 +702,8 @@ def update_delegation(
 
 # ---------- 체험용 도구 (데모 모드에서만 등록) ----------
 
-SCENARIO_KEYS = (("사칭", "2-scam"), ("상품권", "2-scam"), ("보이스", "2-scam"), ("홍삼", "3-health"),
+SCENARIO_KEYS = (("택시", "4-taxi"), ("병원", "4-taxi"), ("숙소", "5-stay"), ("여행", "5-stay"), ("부산", "5-stay"),
+                 ("사칭", "2-scam"), ("상품권", "2-scam"), ("보이스", "2-scam"), ("홍삼", "3-health"),
                  ("건강", "3-health"), ("쌀", "3-health"), ("콘드로이친", "0-chondroitin"), ("관절", "0-chondroitin"),
                  ("알아서", "0-chondroitin"))
 
@@ -670,7 +737,7 @@ def demo_parent_call(scenario: str = "장보기", transcript: str = "", ctx: Con
         "ok": True, "call_id": call_id, "scenario": sample["title"] if sample else "직접 입력한 통화",
         "next_action": "get_new_parent_requests",
         "message": (f"{josa(label, '과', '와')} 통화가 방금 끝난 것으로 처리했어요(체험용). 서버가 통화 정리본을 만들었어요. "
-                    "get_new_parent_requests를 불러 정리본을 보여 주세요. 5분 자동 확인을 켜 두셨다면 다음 확인 때 저절로 알려 드려요."),
+                    "get_new_parent_requests를 불러 정리본을 보여 주세요. 15분 자동 확인을 켜 두셨다면 다음 확인 때 저절로 알려 드려요."),
     }
 
 
@@ -683,7 +750,7 @@ def enable_demo_tools() -> None:
         description=(
             "체험용 도구입니다. 엄마와 통화가 방금 끝난 것처럼 만들어, 실제 에이닷 통화 종료 웹훅과 같은 처리로 정리본을 만듭니다. "
             "예: '데모 통화 만들어줘', '엄마랑 통화한 걸로 쳐줘', '엄마가 장보기 부탁하는 상황 만들어줘', '사칭 전화 상황 보여줘'. "
-            "scenario는 장보기(기본)·건강식품·알아서 골라줘(콘드로이친)·사칭 중 하나, transcript에 대화를 넣으면 그 내용으로 만듭니다. "
+            "scenario는 장보기(기본)·건강식품·알아서 골라줘(콘드로이친)·사칭·병원 택시·숙소 중 하나, transcript에 대화를 넣으면 그 내용으로 만듭니다. "
             "부른 뒤에는 바로 get_new_parent_requests로 정리본을 가져와 사용자에게 보여 주세요."
         ),
         annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False,

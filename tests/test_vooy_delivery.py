@@ -143,13 +143,13 @@ def test_settings_validation_and_test_send(client, monkeypatch):
     assert "[테스트]" in events(c, "vooy_mock")[0]["text"]
 
 
-def test_five_minute_polling_contract(client):
-    """vooy가 5분마다 부르는 도구: 새 통화 데이터가 있을 때만 넘겨주고, 없으면 조용히."""
+def test_polling_contract(client):
+    """vooy가 15분마다 부르는 도구: 새 통화 데이터가 있을 때만 넘겨주고, 없으면 조용히."""
     c, _ = client
     setup_family(c)
     empty = cron_tool()
     assert empty["has_new"] is False and empty["notify_user"] is False and empty["message"] == ""
-    assert empty["poll_interval_sec"] == 300
+    assert empty["poll_interval_sec"] == 900
 
     call_ends(c)
     got = cron_tool()

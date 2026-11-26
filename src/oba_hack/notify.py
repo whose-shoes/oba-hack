@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 import httpx
 
 from . import catalog, store
+from . import tasks as _tasks
 from .config import josa
 
 MAX_ATTEMPTS = 5
@@ -66,6 +67,7 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
     nf = [o for o in orders if o["status"] == "not_found"]
     blocked = [o for o in orders if o["status"] == "blocked"]
     tasks = ex.get("other_tasks", [])
+    todos = [t for t in (store.get("task", i) for i in call.get("task_ids", [])) if t]
     if not (orders or tasks):
         return None
 
@@ -89,8 +91,10 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
         lines.append(f"🔎 못 찾음: ‘{o['request'].get('item')}’ — 어떤 걸 원하시는지 알려 주세요.")
     for o in blocked:
         lines.append(f"🚫 결제 안 함: {o['product']['name']} — {o['decision_reason']} {label}께 직접 확인해 보세요.")
-    for t in tasks:
-        lines.append(f"📌 구매 외 부탁: {t}")
+    for t in todos or [{"text": t} for t in tasks]:
+        lines.append(_tasks.line(t) if t.get("id") else f"📌 구매 외 부탁: {t['text']}")
+    if todos:
+        lines.append("구매 외 부탁은 “응 해줘”라고 하시면 approve_task로 승인하고 알맞은 Vooy 서비스에 맡길게요.")
     if ask:
         name = (ask[0].get("ai_pick") or {}).get("search_keyword") or ask[0]["request"].get("item") or "그것"
         lines.append(f"결제할까요? (예: “응 사줘”, “{josa(name, '은', '는')} 빼줘”)")
@@ -105,6 +109,7 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
         "text": "\n".join(lines),
         "items": [_item(o) for o in orders],
         "other_tasks": tasks,
+        "tasks": [_tasks.brief(t) for t in todos],
         "delivered": False,
         "delivered_via": None,
         "in_flight": False,
@@ -113,7 +118,7 @@ def make_digest(call: dict, orders: list[dict]) -> dict | None:
 
 
 def public(d: dict) -> dict:
-    return {k: d.get(k) for k in ("id", "parent", "created_at", "call", "text", "items", "other_tasks")}
+    return {k: d.get(k) for k in ("id", "parent", "created_at", "call", "text", "items", "other_tasks", "tasks")}
 
 
 # ---------- 설정 (계정별. 환경변수는 단일 계정 운영용 기본값) ----------

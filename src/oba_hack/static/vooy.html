@@ -114,7 +114,7 @@
       <div class="proof">approve_order(차단 주문) → {"ok": false, "message": "🚫 결제를 막은 주문이에요: 상품권은 대신 결제하지 않는 품목이에요 (보이스피싱 단골 수법). 엄마께 직접 전화해 확인해 보세요."}</div></div>
     <div class="tile"><h3>위임 증서 + 1회용 결제 토큰</h3><p>승인하면 상품·수량·최대 금액·배송지와 함께, 이 주문·이 금액에 30분 동안 한 번만 쓰는 토큰을 줍니다. vooy는 카드번호 없이 결제를 실행합니다.</p>
       <div class="proof">"checkout": {"payment_token": "ptok_…", "max_amount": 59000, "single_use": true}</div></div>
-    <div class="tile"><h3>먼저 알려 주는 정리본</h3><p>통화가 끝나면 서버가 정리본을 만들고, vooy는 웹훅(HMAC 서명)으로 받거나 5분 반복 작업으로 가져갑니다. 두 경로가 ‘전달됨’ 표시를 공유해 같은 정리본이 두 번 가지 않습니다.</p>
+    <div class="tile"><h3>먼저 알려 주는 정리본</h3><p>통화가 끝나면 서버가 정리본을 만들고, vooy는 웹훅(HMAC 서명)으로 받거나 15분 반복 작업으로 가져갑니다. 두 경로가 ‘전달됨’ 표시를 공유해 같은 정리본이 두 번 가지 않습니다.</p>
       <div class="proof">get_new_parent_requests → {"has_new": false, "notify_user": false, "message": ""}</div></div>
     <div class="tile"><h3>사용자마다 개인 주소</h3><p>vooy는 MCP 요청에 사용자 정보를 보내지 않으므로, 계정마다 다른 MCP 주소를 발급합니다. 공용 주소는 가입만 하고, 모르는 주소는 404, 남의 주문은 건드릴 수 없습니다.</p>
       <div class="proof">/mcp/&lt;공용&gt; → setup_parent만 · /mcp/&lt;개인&gt; → 그 사용자 데이터만</div></div>
@@ -147,7 +147,7 @@ const S = {pub: null, st: null, mom: demoNumber(), me: demoNumber(), recipe: ""}
 const SAYS = [
   [() => `엄마 등록해줘. 엄마 번호는 ${S.mom}, 내 번호는 ${S.me}이야`, "get_family_status → setup_parent"],
   [() => "엄마는 서울 마포구 월드컵로 1에 사셔. 휴지는 늘 깨끗한나라 30롤 쓰시고 무릎이 안 좋으셔", "setup_parent ×2"],
-  [() => "5분마다 엄마 부탁 확인해줘", "setup_auto_check → vooy 반복 작업"],
+  [() => "15분마다 엄마 부탁 확인해줘", "setup_auto_check → vooy 반복 작업"],
   [() => "데모 통화 하나 만들어줘", "demo_parent_call → get_new_parent_requests"],
   [() => "응 전기요도 사줘", "approve_order → checkout_order"],
   [() => "사칭 전화 상황도 보여줘. 그래도 사줘", "demo_parent_call → approve_order (서버 거절)"],
@@ -160,9 +160,9 @@ const CONVO = [
   ["vooy", "엄마 정보를 등록하고 계정을 만들었어요. 서비스 연결의 MCP 주소를 이 개인 주소로 바꿔 주세요: https://…/mcp/…"],
   ["me", "엄마는 서울 마포구 월드컵로 1에 사셔. 휴지는 늘 깨끗한나라 30롤 쓰시고 무릎이 안 좋으셔"],
   ["tool", "setup_parent · setup_parent"],
-  ["vooy", "기억해 둘게요: 배송지, 메모. 통화가 끝나면 5분 안에 알려 드릴까요?"],
+  ["vooy", "기억해 둘게요: 배송지, 메모. 통화가 끝나면 15분 안에 알려 드릴까요?"],
   ["me", "응"],
-  ["tool", "setup_auto_check → 반복 작업(5분): get_new_parent_requests"],
+  ["tool", "setup_auto_check → 반복 작업(15분): get_new_parent_requests"],
   ["me", "데모 통화 하나 만들어줘"],
   ["tool", "demo_parent_call · get_new_parent_requests"],
   ["vooy", "엄마와 통화에서 부탁 4건을 정리했어요.\n🛒 늘 사던 소액이라 바로 주문할게요: 깨끗한나라 30롤 18,900원, 특란 30구 9,480원\n🟡 확인 필요: 한일 전기요 ×1 59,000원 — 엄마 말씀 “요즘 밤에 너무 추워서 전기요 하나 있으면 좋겠어.”\n📌 구매 외 부탁: 다음 주 화요일 병원 예약 알아보기\n결제할까요?"],
@@ -230,7 +230,7 @@ function renderLive() {
     const ago = Math.max(0, Math.round((Date.now() - kstDate(pl.last_polled_at).getTime()) / 60000));
     $("#pollstat").innerHTML = `${ago <= 6 ? "🟢" : "🟠"} vooy 마지막 확인 <b>${esc(pl.last_polled_at.slice(11, 16))}</b> (${ago}분 전) · 총 ${pl.polls}회 · 가져간 정리본 ${pl.taken}건 · 대기 ${st.vooy_pending}건`;
   } else {
-    $("#pollstat").innerHTML = `⚪ 아직 vooy가 이 계정을 확인한 적이 없어요. 개인 주소를 연결하고 “5분마다 엄마 부탁 확인해줘”라고 말해 보세요. · 대기 정리본 ${st.vooy_pending}건`;
+    $("#pollstat").innerHTML = `⚪ 아직 vooy가 이 계정을 확인한 적이 없어요. 개인 주소를 연결하고 “15분마다 엄마 부탁 확인해줘”라고 말해 보세요. · 대기 정리본 ${st.vooy_pending}건`;
   }
   const ST = {ready_for_vooy: "vooy 구매 대기", authorized: "승인됨 · 결제 대기", paid: "결제 완료", awaiting_approval: "승인 대기", blocked: "차단",
               payment_failed: "결제 실패", cancelled: "취소·환불", rejected: "안 삼", not_found: "못 찾음"};
@@ -269,7 +269,7 @@ document.addEventListener("click", async e => {
     const s = S.samples.find(x => x.id === t.dataset.scen); t.disabled = true;
     try {
       const r = await api("/api/simulate/call-ended", {method: "POST", body: JSON.stringify({transcript: s.transcript, who: "parent", summary: s.summary, todos: s.todos})});
-      $("#callmsg").textContent = r.accepted ? `‘${s.title}’ 통화를 넣었어요. vooy에서 “통화 저장됐어”라고 하거나 5분 확인을 기다리세요.` : "넣지 못했어요";
+      $("#callmsg").textContent = r.accepted ? `‘${s.title}’ 통화를 넣었어요. vooy에서 “통화 저장됐어”라고 하거나 15분 확인을 기다리세요.` : "넣지 못했어요";
     } catch (err) { $("#callmsg").textContent = "실패: " + err.message; }
     t.disabled = false; setTimeout(refresh, 600);
   }
