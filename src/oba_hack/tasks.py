@@ -170,7 +170,8 @@ def approve(t: dict) -> dict:
     msg = (f"{s['service']}에 작업을 맡겨 ‘{t['text']}’을(를) 처리하세요. {s['steps']} "
            + (f"{t['caller']} 집 주소는 {addr}이에요. " if addr else f"{t['caller']} 주소가 등록돼 있지 않아요. 필요하면 사용자에게 물어 setup_parent(address=...)로 저장하세요. ")
            + (f"통화 날짜는 {t['call_date']}이니 '다음 주 화요일' 같은 말은 이 날짜 기준으로 계산하세요. ")
-           + (f"{', '.join(blanks)}는 통화에 없으니 사용자에게 물어 채우세요. " if blanks else "")
+           + (f"handoff.params의 빈 칸({', '.join(blanks)})은 엄마 부탁 문장에서 읽어 채우고, 문장에 없으면 사용자에게 물어보세요. "
+              if blanks else "")
            + (f"금액이 {won(cap)}을 넘으면 진행하지 말고 먼저 물어보세요. " if cap else "")
            + (f"{s['service']}가 연결돼 있지 않으면 {', '.join(s['fallback'])}로 하거나 사용자에게 연결을 안내하세요. " if s["fallback"] else "")
            + f"끝나면 report_task(task_id=\"{t['id']}\", success, provider, amount, reference, details, message_to_mom)로 결과를 알려 주세요. "
