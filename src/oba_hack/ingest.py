@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import secrets
@@ -123,8 +124,15 @@ async def upload_call(request: Request, background: BackgroundTasks, auth: dict 
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "어느 가족의 통화인지 알 수 없어요. 가족 업로드 토큰을 쓰거나 caller_number로 부모님 번호를 알려 주세요.")
     account.log_family.set(fam["id"])
+    # 자동화(메모 알림 등)가 같은 녹음을 여러 번 보내도 한 번만 처리한다
+    digest = hashlib.sha256(b"".join(d for _, _, d in items)).hexdigest()
+    seen = store.get("upload", f"{fam['id']}:{digest}")
+    if seen:
+        return JSONResponse({"accepted": False, "duplicate_of": seen["call_id"], "reason": "already received"},
+                            status_code=status.HTTP_200_OK)
     caller = caller or default_caller()
     call_id, files = save_files(items)
+    store.put("upload", f"{fam['id']}:{digest}", {"call_id": call_id})
     meta = {"call_id": call_id, "caller": caller, "files": files, "status": "received", "source": src,
             "accepted": True}
     (data_dir() / "calls" / call_id / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))

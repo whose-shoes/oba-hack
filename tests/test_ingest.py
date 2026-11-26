@@ -69,3 +69,15 @@ def test_global_token_without_parent_is_rejected(client):
     c, _ = client
     r = c.post("/v1/calls", headers={**AUTH, "Content-Type": "text/plain"}, content="엄마: 김 사줘".encode())
     assert r.status_code == 400
+
+
+def test_same_recording_sent_twice_is_processed_once(client):
+    """자동화가 같은 통화 녹음을 여러 번 보내도(메모 알림이 여러 번 와도) 한 번만 처리한다."""
+    c, _ = client
+    auth = fam_auth(c)
+    body = "엄마: 휴지 다 떨어졌어. 하나 시켜줘.".encode()
+    first = c.post("/v1/calls", headers={**auth, "Content-Type": "text/plain"}, content=body)
+    again = c.post("/v1/calls", headers={**auth, "Content-Type": "text/plain"}, content=body)
+    assert first.status_code == 201
+    assert again.status_code == 200 and again.json()["duplicate_of"] == first.json()["call_id"]
+    assert len(c.get("/api/state").json()["calls"]) == 1
